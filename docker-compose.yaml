@@ -1,0 +1,14 @@
+
+services:
+  bot:
+    image: ${DOCKER_USERNAME}/tg_warm_bot:main
+    container_name: tg-warm-bot
+    restart: unless-stopped
+    ports:
+      - "7230:7230"
+    env_file:
+      - .env
+    volumes:
+      - tdlib:/sessions
+volumes:
+  tdlib:

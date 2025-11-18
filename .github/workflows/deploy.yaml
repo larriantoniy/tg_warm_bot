@@ -1,0 +1,62 @@
+name: Deploy to VPS
+
+# Срабатывает после успешного завершения сборки и публикации образа
+on:
+  workflow_run:
+    workflows:
+      - Build and push with cache
+    types:
+      - completed
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: true
+    steps:
+      - name: Deploy to VPS via SSH
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host:     ${{ secrets.VPS_HOST }}
+          port:     ${{ secrets.VPS_PORT }}
+          username: ${{ vars.VPS_USER }}
+          key:      ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            sudo apt-get clean
+            set -euo pipefail
+            
+          
+            # Переходим в директорию проекта (создадим, если нет)
+            if [ ! -d /home/deploy/tg_warm_bot ]; then
+            git clone git@github.com:larriantoniy/tg_warm_bot.git /home/deploy/tg_warm_bot
+            fi
+            cd /home/deploy/tg_warm_bot
+
+
+            # Обновляем код
+            git reset --hard HEAD
+            git pull
+          
+            # Тянем свежие образы
+            docker compose pull
+      
+
+            # Останавливаем и удаляем старые контейнеры
+            docker compose down
+            docker container prune -f
+
+            # Запускаем сервисы заново (без билда)
+            docker compose up -d --no-build
+          
+            docker compose exec bot sh -c '
+            echo "=== Current environment variable on VPS ==="    
+            set +u
+            echo "TELEGRAM_API_ID=$TELEGRAM_API_ID"
+            echo "TELEGRAM_API_HASH=$TELEGRAM_API_HASH"
+            echo "CHANNELS=$CHANNELS"
+            set -u
+            echo "==========================================="
+                  '
+            # Явно завершаем скрипт с успешным статусом
+            exit 0
