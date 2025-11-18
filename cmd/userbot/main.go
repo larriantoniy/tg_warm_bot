@@ -54,7 +54,6 @@ func main() {
 		logger.Error("runner.StartAll error", "error", err)
 		os.Exit(1)
 	}
-
 	logger.Info("exit")
 }
 
