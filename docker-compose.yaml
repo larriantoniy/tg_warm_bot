@@ -9,6 +9,6 @@ services:
     env_file:
       - .env
     volumes:
-      - tdlib:/sessions
+        - ./sessions:/sessions
 volumes:
   tdlib:
