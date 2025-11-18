@@ -57,7 +57,7 @@ ENV CGO_CFLAGS="-I/usr/local/include"
 ENV CGO_LDFLAGS="-Wl,-rpath,/usr/local/lib -L/usr/local/lib -ltdjson"
 
 # Собираем Go-исполняемый файл
-RUN go build -o tg_user_bot ./cmd/userbot
+RUN go build -o tg_warm_bot ./cmd/userbot
 
 # 3) RUNTIME-образ
 FROM ubuntu:22.04
