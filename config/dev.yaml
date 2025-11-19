@@ -1,2 +1,2 @@
-Env: dev
-BaseDir: /sessions
+env: dev
+baseDir: /sessions
