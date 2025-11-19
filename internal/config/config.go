@@ -26,6 +26,7 @@ func Load() (*AppConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ошибка загрузки конфига: %w", err)
 	}
+	fmt.Println("CONFIG ", apiIDStr, apiHash, cfg.BaseDir)
 	if apiIDStr == "" || apiHash == "" || cfg.BaseDir == "" {
 
 		return nil, fmt.Errorf("TELEGRAM_API_ID, TELEGRAM_API_HASH , BaseDir должны быть заданы")
