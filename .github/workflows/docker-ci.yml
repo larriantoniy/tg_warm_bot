@@ -19,14 +19,12 @@ jobs:
         uses: docker/metadata-action@v5
         with:
             images: ${{ vars.DOCKER_USERNAME }}/tg_warm_bot
-
       # 2. Login to Registry
       - name: Log in to Docker Hub
         uses: docker/login-action@v3      # docker/login-action :contentReference[oaicite:8]{index=8}
         with:
           username: ${{ vars.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-
       # 3. Build and Push
       - name: Build and push
         uses: docker/build-push-action@v6
