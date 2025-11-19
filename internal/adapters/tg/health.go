@@ -64,6 +64,7 @@ func checkProxy(logger *slog.Logger, proxyCfg *ports.ProxyConfig) {
 		}
 
 		_ = conn4.Close()
+
 		logger.Info("proxy reachable on IPv4", "addr", addr4)
 		return
 	}
