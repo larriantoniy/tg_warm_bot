@@ -10,5 +10,11 @@ services:
       - .env
     volumes:
         - ./sessions:/sessions
+    networks:
+      - warmnet6
 volumes:
   tdlib:
+
+networks:
+  warmnet6:
+    external: true
