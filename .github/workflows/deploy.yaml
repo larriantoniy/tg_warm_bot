@@ -43,7 +43,6 @@ jobs:
           
             # Тянем свежие образы
             docker compose pull
-      
 
             # Останавливаем и удаляем старые контейнеры
             docker compose down
