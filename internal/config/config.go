@@ -13,8 +13,8 @@ import (
 type AppConfig struct {
 	ApiID   int32
 	ApiHash string
-	Env     string
-	BaseDir string
+	Env     string `yaml:"env"`
+	BaseDir string `yaml:"base_dir"`
 }
 
 // Load читает настройки из переменных окружения

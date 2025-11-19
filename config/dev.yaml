@@ -1,2 +1,2 @@
 env: dev
-baseDir: /sessions
+base_dir: /sessions
