@@ -8,7 +8,7 @@ import (
 )
 
 func LoadRawSessionConfig(baseDir, sessionName string) (*RawSessionConfig, error) {
-	path := filepath.Join(baseDir, sessionName, "config.json")
+	path := filepath.Join(baseDir, sessionName, sessionName+".json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", path, err)

@@ -43,7 +43,7 @@ func (r *Runner) StartAll(ctx context.Context) error {
 				r.log.Error("GetSessionConfig failed", "session", sName, "error", err)
 				return
 			}
-			r.log.Debug("GetSessionConfig", "cfg", cfg)
+
 			cli, err := r.factory(cfg, r.log)
 			if err != nil {
 				r.log.Error("factory failed", "session", sName, "error", err)
