@@ -34,7 +34,7 @@ func (r *JSONSessionConfigRepo) ListSessions(ctx context.Context) ([]string, err
 }
 
 func (r *JSONSessionConfigRepo) GetSessionConfig(ctx context.Context, sessionName string) (*ports.SessionConfig, error) {
-	path := filepath.Join(r.baseDir, sessionName, "config.json")
+	path := filepath.Join(r.baseDir, sessionName, sessionName+".json")
 
 	data, err := os.ReadFile(path)
 	if err != nil {
