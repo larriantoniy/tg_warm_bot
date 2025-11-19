@@ -3,7 +3,6 @@ package config
 import (
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"strconv"
 
@@ -27,10 +26,7 @@ func Load() (*AppConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ошибка загрузки конфига: %w", err)
 	}
-	log.Printf("Using config: %s", path)
 
-	// и, например, после загрузки конфига
-	log.Printf("Config: %+v", cfg)
 	if apiIDStr == "" || apiHash == "" || cfg.BaseDir == "" {
 
 		return nil, fmt.Errorf("TELEGRAM_API_ID, TELEGRAM_API_HASH , BaseDir должны быть заданы")
