@@ -10,5 +10,3 @@ services:
       - .env
     volumes:
         - ./sessions:/sessions
-volumes:
-  tdlib:
