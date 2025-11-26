@@ -59,7 +59,7 @@ ENV CGO_LDFLAGS="-Wl,-rpath,/usr/local/lib -L/usr/local/lib -ltdjson"
 # Собираем Go-исполняемый файл
 RUN go build -o tg_warm_bot ./cmd/userbot
 
-# 3) RUNTIME-образ
+# RUNTIME-образ
 FROM ubuntu:22.04
 # Устанавливаем только то, что нужно для запуска динамических библиотек
 RUN apt-get update && apt-get install -y \
