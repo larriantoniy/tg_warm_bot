@@ -93,7 +93,6 @@ func NewClientFromJSON(
 	me, err := tdCli.GetMe()
 	if err != nil {
 		log.Error("GetMe failed", "error", err)
-		_, _ = tdCli.Close()
 		return nil, err
 	}
 
