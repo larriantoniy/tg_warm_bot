@@ -66,7 +66,6 @@ func NewClientFromJSON(
 	}
 
 	tdParams := rawCfg.ToTdParams(apiID, apiHash, dbDir, filesDir)
-	authorizer := client.ClientAuthorizer(tdParams)
 
 	proxyCfg, err := rawCfg.ToProxyConfig()
 	if err != nil {
@@ -89,6 +88,20 @@ func NewClientFromJSON(
 			},
 		}))
 	}
+	var authorizer client.AuthorizationStateHandler
+	// === ВЕТВИМ ЛОГИКУ АВТОРИЗАЦИИ ===
+	switch mode {
+	case ClientModeAuth:
+		// AUTH-режим: нужен интерактивный CLI
+		authorizer := client.ClientAuthorizer(tdParams) // без параметров!
+		// запускаем интерактор, который пишет "Enter phone number" и читает os.Stdin
+		go client.CliInteractor(authorizer)
+		// передаём TDLib параметры через канал authorizer'а
+
+	default: // ClientModeRuntime
+		// runtime-режим: сессия уже авторизована, просто инициализируем TDLib
+		authorizer = client.ClientAuthorizer(tdParams)
+	}
 
 	tdCli, err := client.NewClient(authorizer, opts...)
 	if err != nil {
@@ -96,10 +109,7 @@ func NewClientFromJSON(
 		return nil, err
 	}
 
-	// === ДАЛЬШЕ ВЕТВИМ ПОВЕДЕНИЕ ПО РЕЖИМУ ===
-
-	// Режим авторизации: просто оборачиваем клиента и возвращаем,
-	// без GetMe и лишнего шума. Внешний код сам решает, когда звать GetMe.
+	// === Режим AUTH: просто возвращаем клиента, без GetMe ===
 	if mode == ClientModeAuth {
 		log.Info("TDLib client started in AUTH mode",
 			"session", rawCfg.SessionFile,
@@ -109,15 +119,14 @@ func NewClientFromJSON(
 		return &TelegramClient{
 			client: tdCli,
 			logger: log,
-			selfId: 0, // пока не знаем
+			selfId: 0, // пока не знаем, GetMe можно вызвать снаружи
 		}, nil
 	}
 
-	// Обычный боевой режим: считаем, что сессия уже авторизована
+	// === Режим RUNTIME: считаем, что сессия уже авторизована ===
 	me, err := tdCli.GetMe()
 	if err != nil {
 		log.Error("GetMe failed", "session", rawCfg.SessionFile, "error", err)
-		// ВАЖНО: больше не дергаем tdCli.Close() здесь — это могло триггерить панику.
 		return nil, err
 	}
 

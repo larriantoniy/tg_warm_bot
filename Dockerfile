@@ -82,6 +82,11 @@ COPY --from=go-builder /app/config/dev.yaml /etc/tg_warm_bot/dev.yaml
 
 # Чтобы бинарник мог найти libtdjson.so при запуске
 ENV LD_LIBRARY_PATH="/usr/local/lib"
-
+# docker run --rm -it \
+  #  --env-file .env \
+  #  -v ./sessions:/sessions \
+  #  larrianton/tg_warm_bot:main \
+  #  -auth -session имя папки
+  # режим авторизации
 CMD ["tg_warm_bot", "-config", "/etc/tg_warm_bot/dev.yaml"]
 WORKDIR /
