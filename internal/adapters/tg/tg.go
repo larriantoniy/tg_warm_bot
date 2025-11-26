@@ -88,19 +88,13 @@ func NewClientFromJSON(
 			},
 		}))
 	}
-	var authorizer client.AuthorizationStateHandler
-	// === ВЕТВИМ ЛОГИКУ АВТОРИЗАЦИИ ===
-	switch mode {
-	case ClientModeAuth:
-		// AUTH-режим: нужен интерактивный CLI
-		authorizer := client.ClientAuthorizer(tdParams) // без параметров!
-		// запускаем интерактор, который пишет "Enter phone number" и читает os.Stdin
-		go client.CliInteractor(authorizer)
-		// передаём TDLib параметры через канал authorizer'а
 
-	default: // ClientModeRuntime
-		// runtime-режим: сессия уже авторизована, просто инициализируем TDLib
-		authorizer = client.ClientAuthorizer(tdParams)
+	// ✅ ОДИН authorizer для обоих режимов
+	authorizer := client.ClientAuthorizer(tdParams)
+
+	// ✅ В AUTH-режиме запускаем CliInteractor, чтобы были промпты в консоли
+	if mode == ClientModeAuth {
+		go client.CliInteractor(authorizer)
 	}
 
 	tdCli, err := client.NewClient(authorizer, opts...)
@@ -119,7 +113,7 @@ func NewClientFromJSON(
 		return &TelegramClient{
 			client: tdCli,
 			logger: log,
-			selfId: 0, // пока не знаем, GetMe можно вызвать снаружи
+			selfId: 0, // узнаешь позже через GetMe, если нужно
 		}, nil
 	}
 
