@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math/rand"
 	"os"
@@ -25,21 +26,36 @@ const (
 
 func main() {
 	rand.Seed(time.Now().UnixNano())
+
 	cfg, err := config.Load()
 	if err != nil {
-		panic(err)
+		fmt.Println("config load error", "error", err)
+		os.Exit(1)
 	}
-
 	logger := setupLogger(cfg.Env)
+
 	baseDir := cfg.BaseDir
 
+	if cfg.Auth {
+		// AUTH-режим для одной сессии
+		if cfg.Session == "" {
+			logger.Error("auth mode requires session (use -session or SESSION_NAME or yaml.session)")
+			os.Exit(1)
+		}
+		if err := runAuthMode(logger, cfg); err != nil {
+			logger.Error("auth mode failed", "error", err)
+			os.Exit(1)
+		}
+		logger.Info("auth mode finished successfully")
+		return
+	}
 	cfgRepo := config.NewJSONSessionConfigRepo(baseDir)
 
 	// фабрику делаем без tdParams – их теперь создаёт NewClientFromJSON
 	factory := func(sc *ports.SessionConfig, l *slog.Logger) (ports.TelegramClient, error) {
 		// можно логгер завязывать на сессию:
 		sessionLogger := l.With("session", sc.SessionName)
-		return tg.NewClientFromJSON(cfg.ApiID, cfg.ApiHash, baseDir, sc.SessionName, sessionLogger)
+		return tg.NewClientFromJSON(cfg.ApiID, cfg.ApiHash, baseDir, sc.SessionName, sessionLogger, 0)
 	}
 
 	runner := useCases.NewRunner(cfgRepo, logger, factory)
@@ -114,4 +130,22 @@ func setupLogger(env string) *slog.Logger {
 	}
 
 	return logger
+}
+
+func runAuthMode(logger *slog.Logger, cfg *config.AppConfig) error {
+	cli, err := tg.NewClientFromJSON(
+		cfg.ApiID,
+		cfg.ApiHash,
+		cfg.BaseDir,
+		cfg.Session,
+		logger,
+		1,
+	)
+	if err != nil {
+		return err
+	}
+	defer cli.Close()
+
+	logger.Info("AUTH success", "session", cfg.Session)
+	return nil
 }

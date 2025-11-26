@@ -28,13 +28,20 @@ type TelegramClient struct {
 	logger *slog.Logger
 	selfId int64
 }
+type ClientMode int
+
+const (
+	ClientModeRuntime ClientMode = iota // боевой режим: GetMe, лог self_id и т.д.
+	ClientModeAuth                      // режим авторизации: просто поднять TDLib, пообщаться с TDLib и выйти
+)
 
 func NewClientFromJSON(
 	apiID int32,
 	apiHash string,
-	baseDir string, // "./tdlib-sessions"
-	sessionName string, // "923251756758"
+	baseDir string, // "/sessions"
+	sessionName string, // "923345799730" и т.п.
 	log *slog.Logger,
+	mode ClientMode,
 ) (*TelegramClient, error) {
 	rawCfg, err := LoadRawSessionConfig(baseDir, sessionName)
 	if err != nil {
@@ -58,7 +65,6 @@ func NewClientFromJSON(
 		log.Error("TDLib SetLogVerbosityLevel", "error", err)
 	}
 
-	// ВАЖНО: tdParams собираем из rawCfg
 	tdParams := rawCfg.ToTdParams(apiID, apiHash, dbDir, filesDir)
 	authorizer := client.ClientAuthorizer(tdParams)
 
@@ -86,13 +92,32 @@ func NewClientFromJSON(
 
 	tdCli, err := client.NewClient(authorizer, opts...)
 	if err != nil {
-		log.Error("TDLib NewClient error", "error", err)
+		log.Error("TDLib NewClient error", "session", rawCfg.SessionFile, "error", err)
 		return nil, err
 	}
 
+	// === ДАЛЬШЕ ВЕТВИМ ПОВЕДЕНИЕ ПО РЕЖИМУ ===
+
+	// Режим авторизации: просто оборачиваем клиента и возвращаем,
+	// без GetMe и лишнего шума. Внешний код сам решает, когда звать GetMe.
+	if mode == ClientModeAuth {
+		log.Info("TDLib client started in AUTH mode",
+			"session", rawCfg.SessionFile,
+			"phone", rawCfg.Phone,
+		)
+
+		return &TelegramClient{
+			client: tdCli,
+			logger: log,
+			selfId: 0, // пока не знаем
+		}, nil
+	}
+
+	// Обычный боевой режим: считаем, что сессия уже авторизована
 	me, err := tdCli.GetMe()
 	if err != nil {
-		log.Error("GetMe failed", "error", err)
+		log.Error("GetMe failed", "session", rawCfg.SessionFile, "error", err)
+		// ВАЖНО: больше не дергаем tdCli.Close() здесь — это могло триггерить панику.
 		return nil, err
 	}
 
