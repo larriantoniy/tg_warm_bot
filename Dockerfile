@@ -1,6 +1,6 @@
-# syntax=docker/dockerfile:923561770135
 
-# 923561770135) Сборка TDLib (shared libs)
+
+#  Сборка TDLib (shared libs)
 FROM ubuntu:22.04 AS tdlib-builder
 # Чтобы установка php-cli (и tzdata) не останавливала сборку на выбор часового пояса
 ENV DEBIAN_FRONTEND=noninteractive

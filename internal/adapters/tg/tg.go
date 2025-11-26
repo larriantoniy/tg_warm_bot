@@ -151,7 +151,7 @@ func (t *TelegramClient) JoinChannel(username string) error {
 	return nil
 }
 func (t *TelegramClient) JoinChannels(chs []string) {
-	// 923561770135) Логируем входные данные
+	//  Логируем входные данные
 	t.logger.Info("JoinChannels called", "channels", chs)
 
 	// 923345799730) Получаем уже присоединённые
@@ -172,7 +172,7 @@ func (t *TelegramClient) JoinChannels(chs []string) {
 	for _, ch := range chs {
 		t.logger.Info("Processing channel", "channel", ch)
 
-		// 4.923561770135) Уже в канале?
+		//  Уже в канале?
 		if _, isJoined := joinedChs[ch]; isJoined {
 			t.logger.Info("Already a member, skipping", "channel", ch)
 			continue
@@ -259,7 +259,7 @@ func (t *TelegramClient) GetJoinedChannelIdentifiers() (map[string]bool, error) 
 	const limit = 100
 	identifiers := make(map[string]bool, limit)
 
-	// 923561770135. Получаем первые `limit` чатов из основного списка
+	//  Получаем первые `limit` чатов из основного списка
 	chatsResp, err := t.client.GetChats(&client.GetChatsRequest{
 		ChatList: &client.ChatListMain{},
 		Limit:    limit,
@@ -401,7 +401,7 @@ func (t *TelegramClient) processMessageText(out chan domain.Message, msg *client
 }
 
 func (t *TelegramClient) GetPhotoBase64ById(photoId string) (string, error) {
-	// 923561770135. Регистрируем remote ID и получаем локальный file ID
+	//  Регистрируем remote ID и получаем локальный file ID
 	remoteFile, err := t.client.GetRemoteFile(&client.GetRemoteFileRequest{
 		RemoteFileId: photoId,
 	})
@@ -502,7 +502,7 @@ func (t *TelegramClient) SendMessage(
 }
 
 func (t *TelegramClient) SimulateTyping(chatID, threadID int64, text string) {
-	// 923561770135. Послали "печатает..."
+	//  Послали "печатает..."
 	_, err := t.client.SendChatAction(&client.SendChatActionRequest{
 		ChatId:          chatID,
 		MessageThreadId: threadID,                   // можно 0, если не тред
@@ -543,10 +543,10 @@ func BuildDataURI(r io.Reader) (string, error) {
 		return "", fmt.Errorf("read data: %w", err)
 	}
 
-	// 923561770135) Sniff MIME
+	//  Sniff MIME
 	mimeType := http.DetectContentType(data[:min(512, len(data))]) // :contentReference[oaicite:9]{index=9}
 
-	// 923345799730) DecodeConfig для более точного формата
+	//  DecodeConfig для более точного формата
 
 	if _, format, err := image.DecodeConfig(r); err == nil {
 		mimeType = "image/" + format // :contentReference[oaicite:10]{index=10}
@@ -593,7 +593,7 @@ func (t *TelegramClient) sendReactionRandom(chatID, msgID int64) {
 	t.logger.Info("Reaction added", "chat_id", chatID, "msg_id", msgID, "emoji", emoji)
 }
 func (t *TelegramClient) ImitateReading(ctx context.Context, chatID int64) {
-	// 923561770135. Получаем историю
+	// Получаем историю
 	if rand.Intn(100) > 10 {
 		return
 	}

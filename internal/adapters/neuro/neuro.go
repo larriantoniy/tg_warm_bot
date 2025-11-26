@@ -27,7 +27,7 @@ type Neuro struct {
 }
 
 func NewNeuro(cfg *config.AppConfig, logger *slog.Logger) (*Neuro, error) {
-	// 923561770135) Кодируем заранее JSON-тело
+	// Кодируем заранее JSON-тело
 	body := domain.DefaultNeuroBody{
 		Model: domain.MistralModel, // например "mistral-small-2506"
 		Messages: []domain.NeuroMessage{
