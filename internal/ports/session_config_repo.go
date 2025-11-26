@@ -22,6 +22,7 @@ type SessionConfig struct {
 	ApplicationVersion string
 	LangCode           string
 	Proxy              *ProxyConfig
+	Channels           []string
 }
 type SessionConfigRepo interface {
 	// Возвращает список доступных сессий (по именам)

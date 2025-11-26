@@ -2,13 +2,18 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+	"math/rand"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	neuro "github.com/larriantoniy/tg_user_bot/internal/adapters/neuro"
 	"github.com/larriantoniy/tg_user_bot/internal/adapters/tg"
 	"github.com/larriantoniy/tg_user_bot/internal/config"
+	"github.com/larriantoniy/tg_user_bot/internal/domain"
 	"github.com/larriantoniy/tg_user_bot/internal/ports"
 	"github.com/larriantoniy/tg_user_bot/internal/useCases"
 )
@@ -19,6 +24,7 @@ const (
 )
 
 func main() {
+	rand.Seed(time.Now().UnixNano())
 	cfg, err := config.Load()
 	if err != nil {
 		panic(err)
@@ -50,9 +56,45 @@ func main() {
 		cancel()
 	}()
 
-	if err := runner.StartAll(ctx); err != nil {
+	clientsCh, err := runner.StartAll(ctx)
+	if err != nil {
 		logger.Error("runner.StartAll error", "error", err)
 		os.Exit(1)
+	}
+
+	for cli := range clientsCh {
+		neuro, err := neuro.NewNeuro(cfg, logger)
+		if err != nil {
+			logger.Error("neuro.NewNeuro error", "error", err)
+		}
+
+		sender := useCases.NewSender(logger, cli, neuro, cfg.Owner)
+		go func(c ports.TelegramClient) {
+			defer c.Close()
+
+			msgCh, err := c.Listen()
+			if err != nil {
+				logger.Error("Listen error", "error", err)
+				return
+			}
+
+			for m := range msgCh {
+				msg := m
+				go func(msg domain.Message) {
+					c.ImitateReading(ctx, msg.ChatID)
+					if err := sender.SendComment(ctx, &msg); err != nil {
+						if errors.Is(err, tg.ErrRateLimited) {
+							logger.Error("SendComment: rate limited for this client", "error", err)
+							// эта горутина просто заканчивается,
+							// а сам TDLib-клиент уже закрыт внутри tg.SendMessage
+							return
+						}
+						logger.Error("SendComment error", "error", err)
+					}
+				}(msg)
+
+			}
+		}(cli)
 	}
 	logger.Info("exit")
 }

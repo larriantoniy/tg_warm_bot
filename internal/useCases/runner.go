@@ -23,41 +23,48 @@ func NewRunner(
 }
 
 // StartAll запускает клиентов по всем доступным сессиям
-func (r *Runner) StartAll(ctx context.Context) error {
+func (r *Runner) StartAll(ctx context.Context) (<-chan ports.TelegramClient, error) {
+	ch := make(chan ports.TelegramClient)
+
 	sessions, err := r.cfgRepo.ListSessions(ctx)
 	if err != nil {
-		return err
+		close(ch)
+		return ch, err
 	}
 
-	var wg sync.WaitGroup
+	go func() {
+		var wg sync.WaitGroup
 
-	for _, s := range sessions {
-		sName := s
-		wg.Add(1)
+		for _, sName := range sessions {
+			wg.Add(1)
+			go func(sName string) {
+				defer wg.Done()
 
-		go func() {
-			defer wg.Done()
+				cfg, err := r.cfgRepo.GetSessionConfig(ctx, sName)
+				if err != nil {
+					r.log.Error("GetSessionConfig failed", "session", sName, "error", err)
+					return
+				}
 
-			cfg, err := r.cfgRepo.GetSessionConfig(ctx, sName)
-			if err != nil {
-				r.log.Error("GetSessionConfig failed", "session", sName, "error", err)
-				return
-			}
+				cli, err := r.factory(cfg, r.log)
+				if err != nil {
+					r.log.Error("factory failed", "session", sName, "error", err)
+					return
+				}
+				cli.JoinChannels(cfg.Channels)
 
-			cli, err := r.factory(cfg, r.log)
-			if err != nil {
-				r.log.Error("factory failed", "session", sName, "error", err)
-				return
-			}
-			defer cli.Close()
+				r.log.Info("client started", "session", sName)
+				ch <- cli
 
-			r.log.Info("client started", "session", sName)
+				<-ctx.Done()
+				cli.Close()
+				r.log.Info("client stopped", "session", sName)
+			}(sName)
+		}
 
-			<-ctx.Done()
-			r.log.Info("client stopped", "session", sName)
-		}()
-	}
+		wg.Wait()
+		close(ch)
+	}()
 
-	wg.Wait()
-	return nil
+	return ch, nil
 }

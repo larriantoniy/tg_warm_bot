@@ -1,6 +1,6 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:923561770135
 
-# 1) Сборка TDLib (shared libs)
+# 923561770135) Сборка TDLib (shared libs)
 FROM ubuntu:22.04 AS tdlib-builder
 # Чтобы установка php-cli (и tzdata) не останавливала сборку на выбор часового пояса
 ENV DEBIAN_FRONTEND=noninteractive
@@ -35,7 +35,7 @@ RUN --mount=type=cache,target=/tg/build \
           .. && \
     cmake --build . --target install
 
-# 2) Сборка Go-приложения с динамической TDLib
+ Сборка Go-приложения с динамической TDLib
 FROM golang:1.21 AS go-builder
 # Устанавливаем компилятор и dev-пакеты OpenSSL/zlib
 RUN apt-get update && apt-get install -y \

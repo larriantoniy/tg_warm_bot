@@ -10,10 +10,13 @@ import (
 )
 
 type AppConfig struct {
-	ApiID   int32
-	ApiHash string
-	Env     string `yaml:"env"`
-	BaseDir string `yaml:"base_dir"`
+	ApiID      int32
+	ApiHash    string
+	Env        string `yaml:"env"`
+	BaseDir    string `yaml:"base_dir"`
+	NeuroAddr  string `yaml:"neuro_addr"`
+	NeuroToken string `yaml:"neuro_token"`
+	Owner      string `yaml:"owner"`
 }
 
 // Load читает настройки из переменных окружения
@@ -22,14 +25,17 @@ func Load() (*AppConfig, error) {
 	cfg, err := MustLoadPath(path)
 	apiIDStr := os.Getenv("TELEGRAM_API_ID")
 	apiHash := os.Getenv("TELEGRAM_API_HASH")
+	neuroAddr := os.Getenv("NEURO_ADDR")
+	neuroToken := os.Getenv("NEURO_TOKEN")
+	owner := os.Getenv("OWNER")
 
 	if err != nil {
 		return nil, fmt.Errorf("ошибка загрузки конфига: %w", err)
 	}
 
-	if apiIDStr == "" || apiHash == "" || cfg.BaseDir == "" {
+	if apiIDStr == "" || apiHash == "" || cfg.BaseDir == "" || neuroAddr == "" || neuroToken == "" {
 
-		return nil, fmt.Errorf("TELEGRAM_API_ID, TELEGRAM_API_HASH , BaseDir должны быть заданы")
+		return nil, fmt.Errorf("TELEGRAM_API_ID, TELEGRAM_API_HASH , BaseDir , NEURO_ADDR , NEURO_TOKEN должны быть заданы")
 	}
 
 	apiID, err := strconv.Atoi(apiIDStr)
@@ -39,10 +45,13 @@ func Load() (*AppConfig, error) {
 	apiID32 := int32(apiID)
 
 	return &AppConfig{
-		ApiID:   apiID32,
-		ApiHash: apiHash,
-		Env:     cfg.Env,
-		BaseDir: cfg.BaseDir,
+		ApiID:      apiID32,
+		ApiHash:    apiHash,
+		Env:        cfg.Env,
+		BaseDir:    cfg.BaseDir,
+		NeuroAddr:  neuroAddr,
+		NeuroToken: neuroToken,
+		Owner:      owner,
 	}, nil
 }
 

@@ -12,7 +12,7 @@ import (
 )
 
 type JSONSessionConfigRepo struct {
-	baseDir string // "./tdlib-sessions"
+	baseDir string
 }
 
 func NewJSONSessionConfigRepo(baseDir string) *JSONSessionConfigRepo {
@@ -67,5 +67,6 @@ func (r *JSONSessionConfigRepo) GetSessionConfig(ctx context.Context, sessionNam
 		ApplicationVersion: raw.AppVersion,
 		LangCode:           raw.LangCode,
 		Proxy:              proxyCfg,
+		Channels:           raw.Channels,
 	}, nil
 }

@@ -22,9 +22,8 @@ type RawSessionConfig struct {
 	SystemLang string `json:"system_lang_code"`
 	LangPack   string `json:"lang_pack"`
 
-	TwoFA string `json:"twoFA"`
-
-	Proxy []any `json:"proxy"` // [type, host, port, useAuth, user, pass]
+	Proxy    []any    `json:"proxy"` // [type, host, port, useAuth, user, pass]
+	Channels []string `json:"channels"`
 
 	// остальное можно добавить по мере необходимости
 }
@@ -70,7 +69,14 @@ func (c *RawSessionConfig) ToProxyConfig() (*ports.ProxyConfig, error) {
 	}
 	return p, nil
 }
+
+func (c *RawSessionConfig) GetChannels() ([]string, error) {
+	return c.Channels, nil
+}
+
 func (c *RawSessionConfig) ToTdParams(apiID int32, apiHash string, dbDir, filesDir string) *client.SetTdlibParametersRequest {
+	fmt.Println("NUMBER:", c.Phone)
+	fmt.Println("Session_name:", c.SessionFile)
 	lang := c.LangCode
 	if lang == "" {
 		lang = "en"
@@ -83,7 +89,7 @@ func (c *RawSessionConfig) ToTdParams(apiID int32, apiHash string, dbDir, filesD
 
 	appVersion := c.AppVersion
 	if appVersion == "" {
-		appVersion = "1.0"
+		appVersion = "2.0"
 	}
 
 	deviceModel := c.Device

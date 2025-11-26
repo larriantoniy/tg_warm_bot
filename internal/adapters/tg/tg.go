@@ -2,14 +2,18 @@ package tg
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"image"
 	"io"
 	"log/slog"
+	"math/rand"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -106,18 +110,20 @@ func NewClientFromJSON(
 	}, nil
 }
 
+var ErrRateLimited = errors.New("tdlib: too many requests")
+
 // Реализация ports.TelegramClient:
 
-func (c *TelegramClient) GetMe() (int64, error) {
-	me, err := c.client.GetMe()
+func (t *TelegramClient) GetMe() (int64, error) {
+	me, err := t.client.GetMe()
 	if err != nil {
 		return 0, err
 	}
 	return me.Id, nil
 }
 
-func (c *TelegramClient) Close() {
-	c.client.Close()
+func (t *TelegramClient) Close() {
+	t.client.Close()
 }
 
 // JoinChannel подписывается на публичный канал по его username, если ещё не подписан
@@ -145,10 +151,10 @@ func (t *TelegramClient) JoinChannel(username string) error {
 	return nil
 }
 func (t *TelegramClient) JoinChannels(chs []string) {
-	// 1) Логируем входные данные
+	// 923561770135) Логируем входные данные
 	t.logger.Info("JoinChannels called", "channels", chs)
 
-	// 2) Получаем уже присоединённые
+	// 923345799730) Получаем уже присоединённые
 	joinedChs, err := t.GetJoinedChannelIdentifiers()
 	if err != nil {
 		t.logger.Error("Failed to fetch joined channels, aborting", "error", err)
@@ -166,13 +172,13 @@ func (t *TelegramClient) JoinChannels(chs []string) {
 	for _, ch := range chs {
 		t.logger.Info("Processing channel", "channel", ch)
 
-		// 4.1) Уже в канале?
+		// 4.923561770135) Уже в канале?
 		if _, isJoined := joinedChs[ch]; isJoined {
 			t.logger.Info("Already a member, skipping", "channel", ch)
 			continue
 		}
 
-		// 4.2) Username-канал
+		// 4.923345799730) Username-канал
 		if strings.HasPrefix(ch, "@") {
 			t.logger.Info("Attempting JoinChannel by username", "channel", ch)
 			if err := t.JoinChannel(ch); err != nil {
@@ -208,7 +214,7 @@ func (t *TelegramClient) Listen() (<-chan domain.Message, error) {
 			if upd, ok := update.(*client.UpdateNewMessage); ok {
 				_, err := t.processUpdateNewMessage(out, upd)
 				if err != nil {
-					t.logger.Error("Error process UpdateNewMessage msg content type", "upd MessageContentType", upd.Message.Content.MessageContentType())
+					t.logger.Error("Error process UpdateNewMessage msg content type", upd.Message.Content.MessageContentType())
 				}
 			}
 		}
@@ -253,7 +259,7 @@ func (t *TelegramClient) GetJoinedChannelIdentifiers() (map[string]bool, error) 
 	const limit = 100
 	identifiers := make(map[string]bool, limit)
 
-	// 1. Получаем первые `limit` чатов из основного списка
+	// 923561770135. Получаем первые `limit` чатов из основного списка
 	chatsResp, err := t.client.GetChats(&client.GetChatsRequest{
 		ChatList: &client.ChatListMain{},
 		Limit:    limit,
@@ -262,7 +268,7 @@ func (t *TelegramClient) GetJoinedChannelIdentifiers() (map[string]bool, error) 
 		return nil, fmt.Errorf("GetChats failed: %w", err)
 	}
 
-	// 2. Обходим все chatID
+	// 923345799730. Обходим все chatID
 	for _, chatID := range chatsResp.ChatIds {
 		chat, err := t.client.GetChat(&client.GetChatRequest{ChatId: chatID})
 		if err != nil {
@@ -314,21 +320,43 @@ func (t *TelegramClient) getChatTitle(chatID int64) (string, error) {
 func (t *TelegramClient) processUpdateNewMessage(out chan domain.Message, upd *client.UpdateNewMessage) (<-chan domain.Message, error) {
 	chatName, err := t.getChatTitle(upd.Message.ChatId)
 	if err != nil {
-		t.logger.Info("Error getting chat title", err)
+		t.logger.Info("Error getting chat title", "err", err)
+
 		chatName = ""
 	}
+
+	if !upd.Message.IsChannelPost {
+		return out, nil
+	}
+	var replyTo *client.MessageReplyToMessage
+	if reply, ok := upd.Message.ReplyTo.(*client.MessageReplyToMessage); ok {
+		if reply.ChatId == 0 || reply.MessageId == 0 {
+			return out, nil
+		}
+		replyTo = reply
+		t.logger.Info("New channel post with comments",
+			"channel_id", upd.Message.ChatId,
+			"discussion_chat_id", reply.ChatId,
+			"discussion_anchor_msg_id", reply.MessageId,
+			"thread_id", upd.Message.MessageThreadId)
+	} else {
+		// нет корректного ReplyTo -> нет обсуждений, выходим
+		return out, nil
+	}
+
 	switch content := upd.Message.Content.(type) {
 	case *client.MessageText:
-		return t.processMessageText(out, content, upd.Message.ChatId, chatName)
+		return t.processMessageText(out, content, upd.Message.ChatId, chatName, replyTo, upd.Message.MessageThreadId)
 	case *client.MessagePhoto:
-		return t.processMessagePhoto(out, content, upd.Message.ChatId, chatName)
+		return t.processMessagePhoto(out, content, upd.Message.ChatId, chatName, replyTo, upd.Message.MessageThreadId)
 	default:
 		t.logger.Debug("cant switch type update", "upd message MessageContentType()", upd.Message.Content.MessageContentType())
 		return out, nil
 	}
 }
-func (t *TelegramClient) processMessagePhoto(out chan domain.Message, msg *client.MessagePhoto, msgChatId int64, ChatName string) (<-chan domain.Message, error) {
+func (t *TelegramClient) processMessagePhoto(out chan domain.Message, msg *client.MessagePhoto, msgChatId int64, ChatName string, replyToMsg *client.MessageReplyToMessage, threadId int64) (<-chan domain.Message, error) {
 	var text string
+	replyTo := &domain.ReplyTarget{DiscussionChatID: replyToMsg.ChatId, DiscussionMsgID: replyToMsg.MessageId, ThreadID: threadId}
 
 	var photoFileId string
 
@@ -350,24 +378,30 @@ func (t *TelegramClient) processMessagePhoto(out chan domain.Message, msg *clien
 		t.logger.Info("GetPhotoBase64ById", "err", err)
 	}
 	out <- domain.Message{
-		ChatID:    msgChatId,
-		Text:      text,
-		ChatName:  ChatName,
-		PhotoFile: photoFile,
+		ChatID:          msgChatId,
+		Text:            text,
+		ChatName:        ChatName,
+		PhotoFile:       photoFile,
+		MessageThreadId: threadId,
+		ReplyTo:         replyTo,
 	}
 	return out, nil
 }
-func (t *TelegramClient) processMessageText(out chan domain.Message, msg *client.MessageText, msgChatId int64, ChatName string) (<-chan domain.Message, error) {
+func (t *TelegramClient) processMessageText(out chan domain.Message, msg *client.MessageText, msgChatId int64, ChatName string, replyToMsg *client.MessageReplyToMessage, threadId int64) (<-chan domain.Message, error) {
+	replyTo := &domain.ReplyTarget{DiscussionChatID: replyToMsg.ChatId, DiscussionMsgID: replyToMsg.MessageId, ThreadID: threadId}
+
 	out <- domain.Message{
-		ChatID:   msgChatId,
-		Text:     msg.Text.Text,
-		ChatName: ChatName,
+		ChatID:          msgChatId,
+		Text:            msg.Text.Text,
+		ChatName:        ChatName,
+		MessageThreadId: threadId,
+		ReplyTo:         replyTo,
 	}
 	return out, nil
 }
 
 func (t *TelegramClient) GetPhotoBase64ById(photoId string) (string, error) {
-	// 1. Регистрируем remote ID и получаем локальный file ID
+	// 923561770135. Регистрируем remote ID и получаем локальный file ID
 	remoteFile, err := t.client.GetRemoteFile(&client.GetRemoteFileRequest{
 		RemoteFileId: photoId,
 	})
@@ -385,7 +419,7 @@ func (t *TelegramClient) GetPhotoBase64ById(photoId string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("DownloadFile failed: %w", err)
 	}
-	// 2. Начинаем опрашивать статус загрузки
+	// 923345799730. Начинаем опрашивать статус загрузки
 	var fileInfo *client.File
 	for {
 		fileInfo, err = t.client.GetFile(&client.GetFileRequest{
@@ -409,6 +443,96 @@ func (t *TelegramClient) GetPhotoBase64ById(photoId string) (string, error) {
 	return BuildDataURI(bytes.NewReader(data))
 
 }
+func (t *TelegramClient) SendMessage(
+	chatID int64,
+	replyToMsgID int64,
+	threadID int64,
+	text string,
+) error {
+	t.SimulateTyping(chatID, threadID, text)
+
+	input := &client.InputMessageText{
+		Text: &client.FormattedText{
+			Text: text,
+		},
+		ClearDraft: true,
+	}
+
+	req := &client.SendMessageRequest{
+		ChatId:              chatID,
+		InputMessageContent: input,
+	}
+
+	if replyToMsgID != 0 {
+		req.ReplyTo = &client.InputMessageReplyToMessage{
+			MessageId: replyToMsgID,
+			Quote:     nil,
+		}
+	}
+
+	if threadID != 0 {
+		req.MessageThreadId = threadID
+	}
+
+	_, err := t.client.SendMessage(req)
+	if err != nil {
+		// 🔍 проверяем, не словили ли лимит
+		if isTooManyRequests(err) {
+			t.logger.Error("SendMessage rate-limited: too many requests, stopping client",
+				"chat_id", chatID,
+				"thread_id", threadID,
+				"reply_to", replyToMsgID,
+				"error", err,
+			)
+			// Останавливаем конкретный TDLib-клиент
+			t.Close()
+			return ErrRateLimited
+		}
+
+		t.logger.Error("SendMessage failed",
+			"chat_id", chatID,
+			"thread_id", threadID,
+			"reply_to", replyToMsgID,
+			"error", err,
+		)
+		return err
+	}
+
+	return nil
+}
+
+func (t *TelegramClient) SimulateTyping(chatID, threadID int64, text string) {
+	// 923561770135. Послали "печатает..."
+	_, err := t.client.SendChatAction(&client.SendChatActionRequest{
+		ChatId:          chatID,
+		MessageThreadId: threadID,                   // можно 0, если не тред
+		Action:          &client.ChatActionTyping{}, // тип "печатает"
+	})
+	if err != nil {
+		t.logger.Warn("SendChatAction typing failed", "chat_id", chatID, "error", err)
+		// не фейлим общую логику — это косметика
+		return
+	}
+
+	// 923345799730. Прикидываем время "набора" текста
+	runes := []rune(text)
+	n := len(runes)
+
+	// базовое и "за символ"
+	base := 700 * time.Millisecond   // минимум, даже для коротких
+	perChar := 70 * time.Millisecond // ~14 символов/сек
+	d := base + time.Duration(n)*perChar
+
+	// ограничим, чтобы не выглядело странно
+	if d < 700*time.Millisecond {
+		d = 700 * time.Millisecond
+	}
+	if d > 7*time.Second {
+		d = 7 * time.Second
+	}
+
+	time.Sleep(d)
+}
 
 // BuildDataURI читает первые 512 байт для детектирования MIME,
 // затем определяет формат через DecodeConfig и формирует Data URI.
@@ -419,10 +543,10 @@ func BuildDataURI(r io.Reader) (string, error) {
 		return "", fmt.Errorf("read data: %w", err)
 	}
 
-	// 1) Sniff MIME
+	// 923561770135) Sniff MIME
 	mimeType := http.DetectContentType(data[:min(512, len(data))]) // :contentReference[oaicite:9]{index=9}
 
-	// 2) DecodeConfig для более точного формата
+	// 923345799730) DecodeConfig для более точного формата
 
 	if _, format, err := image.DecodeConfig(r); err == nil {
 		mimeType = "image/" + format // :contentReference[oaicite:10]{index=10}
@@ -433,4 +557,120 @@ func BuildDataURI(r io.Reader) (string, error) {
 
 	// 4) Собираем Data URI согласно RFC 2397
 	return fmt.Sprintf("data:%s;base64,%s", mimeType, b64), nil // :contentReference[oaicite:12]{index=12}
+}
+
+func (t *TelegramClient) readThread(ctx context.Context, chatID int64, m *client.Message) {
+	// получить историю треда
+	th, err := t.client.GetMessageThreadHistory(&client.GetMessageThreadHistoryRequest{
+		ChatId:        chatID,
+		MessageId:     m.Id,
+		FromMessageId: 0,
+		Limit:         20,
+	})
+	if err != nil {
+		return
+	}
+
+	for range th.Messages {
+		d := time.Duration(2+rand.Intn(9-2)) * time.Second
+		time.Sleep(d)
+	}
+}
+
+func (t *TelegramClient) sendReactionRandom(chatID, msgID int64) {
+	var reactions = []string{"👍", "❤️", "🔥", "😂", "👏"}
+	emoji := reactions[rand.Intn(len(reactions))]
+
+	_, _ = t.client.AddMessageReaction(&client.AddMessageReactionRequest{
+		ChatId:    chatID,
+		MessageId: msgID,
+		ReactionType: &client.ReactionTypeEmoji{
+			Emoji: emoji,
+		},
+		IsBig: false,
+	})
+
+	t.logger.Info("Reaction added", "chat_id", chatID, "msg_id", msgID, "emoji", emoji)
+}
+func (t *TelegramClient) ImitateReading(ctx context.Context, chatID int64) {
+	// 923561770135. Получаем историю
+	if rand.Intn(100) > 10 {
+		return
+	}
+	history, err := t.client.GetChatHistory(&client.GetChatHistoryRequest{
+		ChatId: chatID,
+		Limit:  30,
+	})
+	if err != nil {
+		t.logger.Error("ImitateReading: GetChatHistory failed", "error", err)
+		return
+	}
+
+	messages := history.Messages
+	// Переворачиваем (человек читает сверху вниз)
+	slices.Reverse(messages)
+
+	for _, m := range messages {
+		if m == nil {
+			continue
+		}
+
+		// 923345799730. Имитируем "открыть сообщение"
+		_, _ = t.client.OpenMessageContent(&client.OpenMessageContentRequest{
+			ChatId:    chatID,
+			MessageId: m.Id,
+		})
+
+		// 3. Подтверждение просмотра
+		_, _ = t.client.ViewMessages(&client.ViewMessagesRequest{
+			ChatId:     chatID,
+			MessageIds: []int64{m.Id},
+			ForceRead:  false,
+		})
+
+		// 4. Иногда ставим реакцию
+		if rand.Float64() < 0.05 { // 5%
+			t.sendReactionRandom(chatID, m.Id)
+		}
+
+		// 6. Если у поста есть обсуждение — иногда открываем тред
+		if m.MessageThreadId != 0 && rand.Float64() < 0.2 {
+			t.readThread(ctx, chatID, m)
+		}
+
+		// 7. Реалистичная задержка
+		d := time.Duration(5+rand.Intn(10-5)) * time.Second
+		time.Sleep(d)
+	}
+}
+
+func isTooManyRequests(err error) bool {
+
+	// TDLib оборачивается в client.Error
+	var tdErr *client.Error
+	if errors.As(err, &tdErr) {
+		// обычно Code == 429, но подстрахуемся по тексту
+		if tdErr.Code == 429 {
+			return true
+		}
+		if strings.Contains(strings.ToLower(tdErr.Message), "too many requests") {
+			return true
+		}
+	}
+	return false
+}
+
+func (t *TelegramClient) ResolveUsername(username string) (int64, error) {
+	if !strings.HasPrefix(username, "@") {
+		username = "@" + username
+	}
+
+	res, err := t.client.SearchPublicChat(&client.SearchPublicChatRequest{
+		Username: username[1:],
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	return res.Id, nil
 }
