@@ -1,5 +1,3 @@
-
-
 #  Сборка TDLib (shared libs)
 FROM ubuntu:22.04 AS tdlib-builder
 # Чтобы установка php-cli (и tzdata) не останавливала сборку на выбор часового пояса
