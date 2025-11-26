@@ -58,7 +58,7 @@ func NewClientFromJSON(
 		log.Error("TDLib SetLogVerbosityLevel", "error", err)
 	}
 
-	// ВАЖНО: tdParams собираем из rawCfg тут
+	// ВАЖНО: tdParams собираем из rawCfg
 	tdParams := rawCfg.ToTdParams(apiID, apiHash, dbDir, filesDir)
 	authorizer := client.ClientAuthorizer(tdParams)
 
