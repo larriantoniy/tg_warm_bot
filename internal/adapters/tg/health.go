@@ -23,7 +23,7 @@ func isIPv4Literal(host string) bool {
 func checkIPv4(logger *slog.Logger) {
 	logger.Info("checking IPv4 connectivity...")
 
-	conn, err := net.DialTimeout("tcp4", "8.8.8.8:53", 3*time.Second)
+	conn, err := net.DialTimeout("tcp4", "8.8.8.8:53", 10*time.Second)
 	if err != nil {
 		logger.Warn("IPv4 seems not working", "error", err)
 		return
@@ -37,7 +37,7 @@ func checkIPv4(logger *slog.Logger) {
 func checkIPv6(logger *slog.Logger) {
 	logger.Info("checking IPv6 connectivity...")
 
-	conn, err := net.DialTimeout("tcp6", "[2606:4700:4700::1111]:53", 3*time.Second)
+	conn, err := net.DialTimeout("tcp6", "[2606:4700:4700::1111]:53", 10*time.Second)
 	if err != nil {
 		logger.Warn("IPv6 seems not working", "error", err)
 		return
@@ -61,7 +61,7 @@ func checkProxy(logger *slog.Logger, proxyCfg *ports.ProxyConfig) {
 		addr := fmt.Sprintf("[%s]:%d", host, port)
 		logger.Info("checking IPv6 proxy...", "addr", addr)
 
-		conn, err := net.DialTimeout("tcp6", addr, 5*time.Second)
+		conn, err := net.DialTimeout("tcp6", addr, 10*time.Second)
 		if err != nil {
 			logger.Error("IPv6 proxy unreachable", "addr_v6", addr, "error_v6", err)
 			return
@@ -76,7 +76,7 @@ func checkProxy(logger *slog.Logger, proxyCfg *ports.ProxyConfig) {
 		addr4 := fmt.Sprintf("%s:%d", host, port)
 		logger.Info("checking IPv4 proxy...", "addr", addr4)
 
-		conn4, err4 := net.DialTimeout("tcp4", addr4, 5*time.Second)
+		conn4, err4 := net.DialTimeout("tcp4", addr4, 10*time.Second)
 		if err4 != nil {
 			logger.Error("IPv4 proxy unreachable", "addr_v4", addr4, "error_v4", err4)
 			return
@@ -90,7 +90,7 @@ func checkProxy(logger *slog.Logger, proxyCfg *ports.ProxyConfig) {
 	addr6 := fmt.Sprintf("[%s]:%d", host, port)
 	logger.Info("checking proxy via hostname, IPv6 first...", "addr_v6", addr6)
 
-	if conn6, err6 := net.DialTimeout("tcp6", addr6, 5*time.Second); err6 == nil {
+	if conn6, err6 := net.DialTimeout("tcp6", addr6, 10*time.Second); err6 == nil {
 		_ = conn6.Close()
 		logger.Info("proxy reachable on IPv6 via hostname", "addr_v6", addr6)
 		return
@@ -99,7 +99,7 @@ func checkProxy(logger *slog.Logger, proxyCfg *ports.ProxyConfig) {
 	}
 
 	addr4 := fmt.Sprintf("%s:%d", host, port)
-	if conn4, err4 := net.DialTimeout("tcp4", addr4, 5*time.Second); err4 == nil {
+	if conn4, err4 := net.DialTimeout("tcp4", addr4, 10*time.Second); err4 == nil {
 		_ = conn4.Close()
 		logger.Info("proxy reachable on IPv4 via hostname", "addr_v4", addr4)
 		return
