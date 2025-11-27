@@ -237,7 +237,6 @@ func (t *TelegramClient) Listen() (<-chan domain.Message, error) {
 	go func() {
 		defer close(out)
 		for update := range listener.Updates {
-			t.logger.Debug("Received new message")
 			if upd, ok := update.(*client.UpdateNewMessage); ok {
 				_, err := t.processUpdateNewMessage(out, upd)
 				if err != nil {
