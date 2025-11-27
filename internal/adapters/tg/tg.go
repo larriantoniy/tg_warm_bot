@@ -345,6 +345,8 @@ func (t *TelegramClient) getChatTitle(chatID int64) (string, error) {
 
 func (t *TelegramClient) processUpdateNewMessage(out chan domain.Message, upd *client.UpdateNewMessage) (<-chan domain.Message, error) {
 	if !upd.Message.IsChannelPost {
+		t.logger.Info("IsChannelPost", "!upd.Message.IsChannelPost", !upd.Message.IsChannelPost)
+
 		return out, nil
 	}
 	chatName, err := t.getChatTitle(upd.Message.ChatId)
