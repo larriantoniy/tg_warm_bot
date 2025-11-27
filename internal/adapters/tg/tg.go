@@ -345,6 +345,9 @@ func (t *TelegramClient) getChatTitle(chatID int64) (string, error) {
 }
 
 func (t *TelegramClient) processUpdateNewMessage(out chan domain.Message, upd *client.UpdateNewMessage) (<-chan domain.Message, error) {
+	if !upd.Message.IsChannelPost {
+		return out, nil
+	}
 	chatName, err := t.getChatTitle(upd.Message.ChatId)
 	if err != nil {
 		t.logger.Info("Error getting chat title", "err", err)
@@ -352,9 +355,6 @@ func (t *TelegramClient) processUpdateNewMessage(out chan domain.Message, upd *c
 		chatName = ""
 	}
 
-	if !upd.Message.IsChannelPost {
-		return out, nil
-	}
 	var replyTo *client.MessageReplyToMessage
 	if reply, ok := upd.Message.ReplyTo.(*client.MessageReplyToMessage); ok {
 		if reply.ChatId == 0 || reply.MessageId == 0 {
