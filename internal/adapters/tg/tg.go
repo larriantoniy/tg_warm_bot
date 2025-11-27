@@ -237,7 +237,18 @@ func (t *TelegramClient) Listen() (<-chan domain.Message, error) {
 	go func() {
 		defer close(out)
 		for update := range listener.Updates {
+
 			if upd, ok := update.(*client.UpdateNewMessage); ok {
+				if text, ok := upd.Message.Content.(*client.MessageText); ok {
+					t.logger.Info("DBG message",
+						"chat_id", upd.Message.ChatId,
+						"is_channel_post", upd.Message.IsChannelPost,
+						"thread_id", upd.Message.MessageThreadId,
+						"reply_to", fmt.Sprintf("%T", upd.Message.ReplyTo),
+						"content_type", upd.Message.Content.MessageContentType(),
+						"text", text,
+					)
+				}
 				_, err := t.processUpdateNewMessage(out, upd)
 				if err != nil {
 					t.logger.Error("Error process UpdateNewMessage msg content type", upd.Message.Content.MessageContentType())
