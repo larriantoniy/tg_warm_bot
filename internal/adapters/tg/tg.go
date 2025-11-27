@@ -237,6 +237,7 @@ func (t *TelegramClient) Listen() (<-chan domain.Message, error) {
 	go func() {
 		defer close(out)
 		for update := range listener.Updates {
+			t.logger.Info("New update msg content", "type", update.GetType())
 			if upd, ok := update.(*client.UpdateNewMessage); ok {
 				_, err := t.processUpdateNewMessage(out, upd)
 				if err != nil {
@@ -346,7 +347,6 @@ func (t *TelegramClient) getChatTitle(chatID int64) (string, error) {
 func (t *TelegramClient) processUpdateNewMessage(out chan domain.Message, upd *client.UpdateNewMessage) (<-chan domain.Message, error) {
 	if !upd.Message.IsChannelPost {
 		t.logger.Info("IsChannelPost", "!upd.Message.IsChannelPost", !upd.Message.IsChannelPost)
-
 		return out, nil
 	}
 	chatName, err := t.getChatTitle(upd.Message.ChatId)
