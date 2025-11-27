@@ -354,8 +354,11 @@ func (t *TelegramClient) processUpdateNewMessage(out chan domain.Message, upd *c
 
 		chatName = ""
 	}
-	t.logger.Info("upd.Message.ReplyTo.", "ReplyTo Type", upd.Message.ReplyTo.(*client.MessageReplyToMessage).MessageReplyToType())
+
 	var replyTo *client.MessageReplyToMessage
+	if upd.Message.ReplyTo == nil {
+		return out, nil
+	}
 	if reply, ok := upd.Message.ReplyTo.(*client.MessageReplyToMessage); ok {
 		if reply.ChatId == 0 || reply.MessageId == 0 {
 			return out, nil
