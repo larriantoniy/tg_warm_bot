@@ -205,7 +205,7 @@ func (t *TelegramClient) JoinChannels(chs []string) {
 			continue
 		}
 
-		// 4.923345799730) Username-канал
+		// 4 Username-канал
 		if strings.HasPrefix(ch, "@") {
 			t.logger.Info("Attempting JoinChannel by username", "channel", ch)
 			if err := t.JoinChannel(ch); err != nil {
