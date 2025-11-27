@@ -370,7 +370,7 @@ func (t *TelegramClient) processUpdateNewMessage(out chan domain.Message, upd *c
 			"discussion_anchor_msg_id", reply.MessageId,
 			"thread_id", upd.Message.MessageThreadId)
 	} else {
-		// нет корректного ReplyTo -> нет обсуждений, выходим
+		t.logger.Info("Not correct reply", "channel_id", upd.Message.ChatId)
 		return out, nil
 	}
 
