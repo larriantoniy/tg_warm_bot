@@ -259,6 +259,30 @@ func (t *TelegramClient) Listen() (<-chan domain.Message, error) {
 
 	return out, nil
 }
+func (t *TelegramClient) isMember(chatID int64) bool {
+	member, err := t.client.GetChatMember(&client.GetChatMemberRequest{
+		ChatId:   chatID,
+		MemberId: &client.MessageSenderUser{UserId: t.selfId},
+	})
+	if err != nil {
+		t.logger.Debug("GetChatMember failed, assuming not a member", "chat_id", chatID, "error", err)
+		return false
+	}
+
+	//  Определяем статус через type assertion
+	switch member.Status.(type) {
+	case *client.ChatMemberStatusMember, *client.ChatMemberStatusAdministrator, *client.ChatMemberStatusCreator:
+		t.logger.Debug("Bot is channel member", "chat_id", chatID)
+		return true
+	default:
+		t.logger.Debug("Bot not member", "chat_id", chatID)
+		return false
+	}
+}
+
+func (t *TelegramClient) IsMember(chatID int64) bool {
+	return t.isMember(chatID)
+}
 
 func (t *TelegramClient) IsChannelMember(username string) (bool, error) {
 
@@ -269,27 +293,7 @@ func (t *TelegramClient) IsChannelMember(username string) (bool, error) {
 		t.logger.Error("SearchPublicChat failed", "username", username, "error", err)
 		return false, err
 	}
-
-	//  Получаем информацию об участнике
-
-	member, err := t.client.GetChatMember(&client.GetChatMemberRequest{
-		ChatId:   chat.Id,
-		MemberId: &client.MessageSenderUser{UserId: t.selfId},
-	})
-	if err != nil {
-		t.logger.Debug("GetChatMember failed, assuming not a member", "chat_id", chat.Id, "error", err)
-		return false, nil
-	}
-
-	//  Определяем статус через type assertion
-	switch member.Status.(type) {
-	case *client.ChatMemberStatusMember, *client.ChatMemberStatusAdministrator, *client.ChatMemberStatusCreator:
-		t.logger.Debug("Bot is channel member", "chat_id", chat.Id)
-		return true, nil
-	default:
-		t.logger.Debug("Bot not member", "chat_id", chat.Id)
-		return false, nil
-	}
+	return t.isMember(chat.Id), nil
 }
 
 func (t *TelegramClient) GetJoinedChannelIdentifiers() (map[string]bool, error) {
@@ -356,7 +360,10 @@ func (t *TelegramClient) getChatTitle(chatID int64) (string, error) {
 
 func (t *TelegramClient) processUpdateNewMessage(out chan domain.Message, upd *client.UpdateNewMessage) (<-chan domain.Message, error) {
 	if !upd.Message.IsChannelPost {
-		t.logger.Info("IsChannelPost", "!upd.Message.IsChannelPost", !upd.Message.IsChannelPost)
+		return out, nil
+	}
+	if upd.Message.MessageThreadId == 0 {
+		// обычный групповой чат/сообщение — не наш кейс
 		return out, nil
 	}
 	chatName, err := t.getChatTitle(upd.Message.ChatId)
@@ -365,39 +372,30 @@ func (t *TelegramClient) processUpdateNewMessage(out chan domain.Message, upd *c
 
 		chatName = ""
 	}
-
-	var replyTo *client.MessageReplyToMessage
-	if upd.Message.ReplyTo == nil {
-		return out, nil
-	}
-	if reply, ok := upd.Message.ReplyTo.(*client.MessageReplyToMessage); ok {
-		if reply.ChatId == 0 || reply.MessageId == 0 {
-			return out, nil
-		}
-		replyTo = reply
-		t.logger.Info("New channel post with comments",
-			"channel_id", upd.Message.ChatId,
-			"discussion_chat_id", reply.ChatId,
-			"discussion_anchor_msg_id", reply.MessageId,
-			"thread_id", upd.Message.MessageThreadId)
-	} else {
-		t.logger.Info("Not correct reply", "channel_id", upd.Message.ChatId)
-		return out, nil
+	threadMsg, err := t.client.GetMessage(&client.GetMessageRequest{
+		ChatId:    upd.Message.ChatId, // чат обсуждения
+		MessageId: upd.Message.MessageThreadId,
+	})
+	if err != nil {
+		t.logger.Error("GetMessage for thread root failed",
+			"chat_id", upd.Message.ChatId,
+			"thread_id", upd.Message.MessageThreadId,
+			"error", err,
+		)
 	}
 
-	switch content := upd.Message.Content.(type) {
+	switch content := threadMsg.Content.(type) {
 	case *client.MessageText:
-		return t.processMessageText(out, content, upd.Message.ChatId, chatName, replyTo, upd.Message.MessageThreadId)
+		return t.processMessageText(out, content, upd.Message.ChatId, chatName, upd.Message.MessageThreadId)
 	case *client.MessagePhoto:
-		return t.processMessagePhoto(out, content, upd.Message.ChatId, chatName, replyTo, upd.Message.MessageThreadId)
+		return t.processMessagePhoto(out, content, upd.Message.ChatId, chatName, upd.Message.MessageThreadId)
 	default:
 		t.logger.Debug("cant switch type update", "upd message MessageContentType()", upd.Message.Content.MessageContentType())
 		return out, nil
 	}
 }
-func (t *TelegramClient) processMessagePhoto(out chan domain.Message, msg *client.MessagePhoto, msgChatId int64, ChatName string, replyToMsg *client.MessageReplyToMessage, threadId int64) (<-chan domain.Message, error) {
+func (t *TelegramClient) processMessagePhoto(out chan domain.Message, msg *client.MessagePhoto, msgChatId int64, ChatName string, threadId int64) (<-chan domain.Message, error) {
 	var text string
-	replyTo := &domain.ReplyTarget{DiscussionChatID: replyToMsg.ChatId, DiscussionMsgID: replyToMsg.MessageId, ThreadID: threadId}
 
 	var photoFileId string
 
@@ -424,21 +422,20 @@ func (t *TelegramClient) processMessagePhoto(out chan domain.Message, msg *clien
 		ChatName:        ChatName,
 		PhotoFile:       photoFile,
 		MessageThreadId: threadId,
-		ReplyTo:         replyTo,
 	}
 	return out, nil
 }
-func (t *TelegramClient) processMessageText(out chan domain.Message, msg *client.MessageText, msgChatId int64, ChatName string, replyToMsg *client.MessageReplyToMessage, threadId int64) (<-chan domain.Message, error) {
-	replyTo := &domain.ReplyTarget{DiscussionChatID: replyToMsg.ChatId, DiscussionMsgID: replyToMsg.MessageId, ThreadID: threadId}
+func (t *TelegramClient) processMessageText(out chan domain.Message, msg *client.MessageText, msgChatId int64, ChatName string, threadId int64) (<-chan domain.Message, error) {
 
 	out <- domain.Message{
 		ChatID:          msgChatId,
 		Text:            msg.Text.Text,
 		ChatName:        ChatName,
 		MessageThreadId: threadId,
-		ReplyTo:         replyTo,
 	}
+
 	return out, nil
+
 }
 
 func (t *TelegramClient) GetPhotoBase64ById(photoId string) (string, error) {
@@ -486,10 +483,21 @@ func (t *TelegramClient) GetPhotoBase64ById(photoId string) (string, error) {
 }
 func (t *TelegramClient) SendMessage(
 	chatID int64,
-	replyToMsgID int64,
 	threadID int64,
 	text string,
 ) error {
+	if threadID != 0 {
+		if !t.isMember(chatID) {
+			_, err := t.client.JoinChat(&client.JoinChatRequest{
+				ChatId: chatID,
+			})
+			if err != nil {
+				t.logger.Error("JoinChat Discussion failed", "chat_id", chatID, "error", err)
+				return err
+			}
+		}
+	}
+
 	t.SimulateTyping(chatID, threadID, text)
 
 	input := &client.InputMessageText{
@@ -504,13 +512,6 @@ func (t *TelegramClient) SendMessage(
 		InputMessageContent: input,
 	}
 
-	if replyToMsgID != 0 {
-		req.ReplyTo = &client.InputMessageReplyToMessage{
-			MessageId: replyToMsgID,
-			Quote:     nil,
-		}
-	}
-
 	if threadID != 0 {
 		req.MessageThreadId = threadID
 	}
@@ -522,7 +523,6 @@ func (t *TelegramClient) SendMessage(
 			t.logger.Error("SendMessage rate-limited: too many requests, stopping client",
 				"chat_id", chatID,
 				"thread_id", threadID,
-				"reply_to", replyToMsgID,
 				"error", err,
 			)
 			// Останавливаем конкретный TDLib-клиент
@@ -533,7 +533,6 @@ func (t *TelegramClient) SendMessage(
 		t.logger.Error("SendMessage failed",
 			"chat_id", chatID,
 			"thread_id", threadID,
-			"reply_to", replyToMsgID,
 			"error", err,
 		)
 		return err
@@ -588,8 +587,7 @@ func BuildDataURI(r io.Reader) (string, error) {
 	mimeType := http.DetectContentType(data[:min(512, len(data))]) // :contentReference[oaicite:9]{index=9}
 
 	//  DecodeConfig для более точного формата
-
-	if _, format, err := image.DecodeConfig(r); err == nil {
+	if _, format, err := image.DecodeConfig(bytes.NewReader(data)); err == nil {
 		mimeType = "image/" + format // :contentReference[oaicite:10]{index=10}
 	}
 

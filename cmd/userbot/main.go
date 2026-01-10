@@ -22,6 +22,7 @@ import (
 const (
 	envDev  = "dev"
 	envProd = "prod"
+	maxInFlightComments = 50
 )
 
 func main() {
@@ -82,6 +83,8 @@ func main() {
 		neuro, err := neuro.NewNeuro(cfg, logger)
 		if err != nil {
 			logger.Error("neuro.NewNeuro error", "error", err)
+			cli.Close()
+			continue
 		}
 
 		sender := useCases.NewSender(logger, cli, neuro, cfg.Owner)
@@ -94,9 +97,12 @@ func main() {
 				return
 			}
 
+			inFlight := make(chan struct{}, maxInFlightComments)
 			for m := range msgCh {
 				msg := m
+				inFlight <- struct{}{}
 				go func(msg domain.Message) {
+					defer func() { <-inFlight }()
 					c.ImitateReading(ctx, msg.ChatID)
 					if err := sender.SendComment(ctx, &msg); err != nil {
 						if errors.Is(err, tg.ErrRateLimited) {
@@ -127,6 +133,10 @@ func setupLogger(env string) *slog.Logger {
 		logger = slog.New(
 			slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}),
 		)
+	default:
+		logger = slog.New(
+			slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}),
+		)
 	}
 
 	return logger
@@ -139,7 +149,7 @@ func runAuthMode(logger *slog.Logger, cfg *config.AppConfig) error {
 		cfg.BaseDir,
 		cfg.Session,
 		logger,
-		1,
+		tg.ClientModeRuntime,
 	)
 	if err != nil {
 		return err

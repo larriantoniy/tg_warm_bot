@@ -2,6 +2,7 @@ package useCases
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand"
@@ -14,6 +15,15 @@ import (
 	"github.com/larriantoniy/tg_user_bot/internal/ports"
 )
 
+type ThreadKey struct {
+	ChatID   int64
+	ThreadID int64
+}
+type CommentLimiter struct {
+	mu   sync.Mutex
+	seen map[ThreadKey]struct{}
+}
+
 type Sender struct {
 	log   *slog.Logger
 	tg    ports.TelegramClient
@@ -22,7 +32,7 @@ type Sender struct {
 	ownerUsername string
 	ownerUserID   int64 // кеш, чтобы не делать каждый раз resolve
 	limited       bool  // флаг: сессия ушла в rate limit
-
+	limiter       *CommentLimiter
 	mu            sync.Mutex
 	lastCommentAt time.Time
 	minInterval   time.Duration
@@ -46,24 +56,24 @@ func NewSender(
 		neuro:         neuro,
 		ownerUsername: owner,
 		minInterval:   10 * time.Minute,
+		limiter:       &CommentLimiter{seen: make(map[ThreadKey]struct{})},
 	}
 }
 func (s *Sender) SendComment(ctx context.Context, msg *domain.Message) error {
-	// нет таргета для реплая — нечего делать
-	if msg.ReplyTo == nil {
-		return nil
+	if !s.Allow(msg.ChatID, msg.MessageThreadId) {
+		return fmt.Errorf("SendComment: ChatID %d is not allowed because be send already", msg.ChatID)
 	}
 	s.mu.Lock()
 	limited := s.limited
 	s.mu.Unlock()
 	if limited {
 		s.log.Warn("Skip SendComment: session is already rate-limited",
-			"chat_id", msg.ReplyTo.DiscussionChatID,
-			"msg_id", msg.ReplyTo.DiscussionMsgID,
+			"chat_id", msg.ChatID,
+			"msg_thread_id", msg.MessageThreadId,
 		)
 		return tg.ErrRateLimited
 	}
-	// 923561770135) сначала генерим текст от нейросети
+	//  сначала генерим текст от нейросети
 
 	replyText, err := s.neuro.GetComment(ctx, msg)
 	if err != nil {
@@ -78,8 +88,8 @@ func (s *Sender) SendComment(ctx context.Context, msg *domain.Message) error {
 
 	// 923345799730) планируем задержку 15–30 минут
 	s.log.Info("Planned comment delay",
-		"chat_id", msg.ReplyTo.DiscussionChatID,
-		"msg_id", msg.ReplyTo.DiscussionMsgID,
+		"chat_id", msg.ChatID,
+		"msg_thread_id", msg.MessageThreadId,
 		"min_delay", minDelay,
 		"max_delay", maxDelay,
 		"comment", replyText,
@@ -97,11 +107,15 @@ func (s *Sender) SendComment(ctx context.Context, msg *domain.Message) error {
 	}
 
 	if err := s.tg.SendMessage(
-		msg.ReplyTo.DiscussionChatID,
-		msg.ReplyTo.DiscussionMsgID,
+		msg.ChatID,
 		msg.MessageThreadId,
 		replyText,
 	); err != nil {
+		if errors.Is(err, tg.ErrRateLimited) {
+			s.mu.Lock()
+			s.limited = true
+			s.mu.Unlock()
+		}
 		s.log.Error("SendComment", "error", err)
 		return err
 	}
@@ -164,7 +178,7 @@ func (s *Sender) sendOwnerNotify(text string, replyText string) error {
 		replyText,
 		text,
 	)
-	err := s.tg.SendMessage(s.ownerUserID, 0, 0, toOwner)
+	err := s.tg.SendMessage(s.ownerUserID, 0, toOwner)
 	if err != nil {
 		s.log.Warn("Send Owner Notify", "error", err)
 		return err
@@ -190,4 +204,16 @@ func randomDelay(ctx context.Context, min, max time.Duration) error {
 	case <-timer.C:
 		return nil
 	}
+}
+
+func (s *Sender) Allow(chatID, threadID int64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	key := ThreadKey{ChatID: chatID, ThreadID: threadID}
+	if _, ok := s.limiter.seen[key]; ok {
+		return false
+	}
+	s.limiter.seen[key] = struct{}{}
+	return true
 }
