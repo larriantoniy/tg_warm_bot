@@ -360,10 +360,20 @@ func (t *TelegramClient) getChatTitle(chatID int64) (string, error) {
 
 func (t *TelegramClient) processUpdateNewMessage(out chan domain.Message, upd *client.UpdateNewMessage) (<-chan domain.Message, error) {
 	if !upd.Message.IsChannelPost {
+			t.logger.Info("processUpdateNewMessage",
+		!upd.Message.IsChannelPost ,"not a channel post",
+		"chat_id", upd.Message.ChatId,
+		"thread_id", upd.Message.MessageThreadId,
+		)
 		return out, nil
 	}
 	if upd.Message.MessageThreadId == 0 {
 		// обычный групповой чат/сообщение — не наш кейс
+		t.logger.Info("processUpdateNewMessage",
+		"chat_id", upd.Message.ChatId,
+		"thread_id", upd.Message.MessageThreadId,
+		"not a thread root",
+		)
 		return out, nil
 	}
 	chatName, err := t.getChatTitle(upd.Message.ChatId)
