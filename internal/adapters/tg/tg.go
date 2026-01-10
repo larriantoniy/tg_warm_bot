@@ -372,7 +372,7 @@ func (t *TelegramClient) processUpdateNewMessage(out chan domain.Message, upd *c
 		t.logger.Info("processUpdateNewMessage",
 		"chat_id", upd.Message.ChatId,
 		"thread_id", upd.Message.MessageThreadId,
-		"not a thread root",
+		upd.Message, "not a thread root",
 		)
 		return out, nil
 	}
