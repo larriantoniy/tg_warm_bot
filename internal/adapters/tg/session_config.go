@@ -75,7 +75,6 @@ func (c *RawSessionConfig) GetChannels() ([]string, error) {
 }
 
 func (c *RawSessionConfig) ToTdParams(apiID int32, apiHash string, dbDir, filesDir string) *client.SetTdlibParametersRequest {
-	fmt.Println("Session_name:", c.SessionFile)
 	lang := c.LangCode
 	if lang == "" {
 		lang = "en"

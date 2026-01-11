@@ -72,10 +72,6 @@ func NewClientFromJSON(
 		log.Error("parse proxy from json", "error", err)
 	}
 
-	checkIPv4(log)
-	checkIPv6(log)
-	checkProxy(log, proxyCfg)
-
 	var opts []client.Option
 	if proxyCfg != nil && proxyCfg.Enabled {
 		opts = append(opts, client.WithProxy(&client.AddProxyRequest{
