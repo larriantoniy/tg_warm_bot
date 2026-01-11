@@ -429,45 +429,27 @@ func (t *TelegramClient) processUpdateNewMessage(out chan domain.Message, upd *c
 	if upd.Message.IsChannelPost {
 		if linkedChatID, ok := t.getLinkedChatID(upd.Message.ChatId); ok {
 			t.ensureJoinedChat(linkedChatID)
-		}
-		if upd.Message.MessageThreadId == 0 {
-			t.logger.Info("processUpdateNewMessage",
-				"chat_id", upd.Message.ChatId,
-				"thread_id", upd.Message.MessageThreadId,
-				"not a thread root",
-			)
-			return out, nil
-		}
-		return t.processChannelPostThread(out, upd.Message.ChatId, upd.Message.MessageThreadId)
+		} else {
+		return t.processChannelPostThread(out, upd.Message.ChatId, linkedChatID, upd.Message.MessageThreadId)
 	}
 
-	// Сообщение из обсуждения: связываем его с канальным постом по MessageThreadId.
-	if upd.Message.MessageThreadId == 0 {
-		return out, nil
-	}
-
-	linkedChatID, ok := t.getLinkedChatID(upd.Message.ChatId)
-	if !ok {
-		return out, nil
-	}
-
-	return t.processChannelPostThread(out, linkedChatID, upd.Message.MessageThreadId)
+	return t.processChannelPostThread(out, linkedChatID, upd.Message.ChatId, upd.Message.MessageThreadId)
 }
 
-func (t *TelegramClient) processChannelPostThread(out chan domain.Message, chatID int64, threadID int64) (<-chan domain.Message, error) {
-	chatName, err := t.getChatTitle(chatID)
+func (t *TelegramClient) processChannelPostThread(out chan domain.Message, channelChatID int64, discussionChatID int64, threadID int64) (<-chan domain.Message, error) {
+	chatName, err := t.getChatTitle(channelChatID)
 	if err != nil {
 		t.logger.Info("Error getting chat title", "err", err)
 		chatName = ""
 	}
 
 	threadMsg, err := t.client.GetMessage(&client.GetMessageRequest{
-		ChatId:    chatID,
+		ChatId:    channelChatID,
 		MessageId: threadID,
 	})
 	if err != nil {
 		t.logger.Error("GetMessage for thread root failed",
-			"chat_id", chatID,
+			"chat_id", channelChatID,
 			"thread_id", threadID,
 			"error", err,
 		)
@@ -476,9 +458,9 @@ func (t *TelegramClient) processChannelPostThread(out chan domain.Message, chatI
 
 	switch content := threadMsg.Content.(type) {
 	case *client.MessageText:
-		return t.processMessageText(out, content, chatID, chatName, threadID)
+		return t.processMessageText(out, content, discussionChatID, chatName, threadID)
 	case *client.MessagePhoto:
-		return t.processMessagePhoto(out, content, chatID, chatName, threadID)
+		return t.processMessagePhoto(out, content, discussionChatID, chatName, threadID)
 	default:
 		t.logger.Debug("cant switch type update", "upd message MessageContentType()", threadMsg.Content.MessageContentType())
 		return out, nil
