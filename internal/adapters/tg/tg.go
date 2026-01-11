@@ -427,10 +427,23 @@ func (t *TelegramClient) processUpdateNewMessage(out chan domain.Message, upd *c
 		return out, nil
 	}
 	if upd.Message.IsChannelPost {
-		if linkedChatID, ok := t.getLinkedChatID(upd.Message.ChatId); ok {
+		linkedChatID, ok := t.getLinkedChatID(upd.Message.ChatId)
+		if ok {
 			t.ensureJoinedChat(linkedChatID)
-		} else {
+		}  else {
+			return out, nil
+		}
 		return t.processChannelPostThread(out, upd.Message.ChatId, linkedChatID, upd.Message.MessageThreadId)
+	}
+
+	// Сообщение из обсуждения: связываем его с канальным постом по MessageThreadId.
+	if upd.Message.MessageThreadId == 0 {
+		return out, nil
+	}
+
+	linkedChatID, ok := t.getLinkedChatID(upd.Message.ChatId)
+	if !ok {
+		return out, nil
 	}
 
 	return t.processChannelPostThread(out, linkedChatID, upd.Message.ChatId, upd.Message.MessageThreadId)
