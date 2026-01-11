@@ -358,49 +358,86 @@ func (t *TelegramClient) getChatTitle(chatID int64) (string, error) {
 	return chat.Title, nil
 }
 
+func (t *TelegramClient) getLinkedChannelID(discussionChatID int64) (int64, bool) {
+	chat, err := t.client.GetChat(&client.GetChatRequest{
+		ChatId: discussionChatID,
+	})
+	if err != nil {
+		t.logger.Debug("GetChat failed for discussion chat", "chat_id", discussionChatID, "error", err)
+		return 0, false
+	}
+
+	sg, ok := chat.Type.(*client.ChatTypeSupergroup)
+	if !ok {
+		return 0, false
+	}
+
+	info, err := t.client.GetSupergroupFullInfo(&client.GetSupergroupFullInfoRequest{
+		SupergroupId: sg.SupergroupId,
+	})
+	if err != nil {
+		t.logger.Debug("GetSupergroupFullInfo failed", "chat_id", discussionChatID, "error", err)
+		return 0, false
+	}
+	if info.LinkedChatId == 0 {
+		return 0, false
+	}
+	return info.LinkedChatId, true
+}
+
 func (t *TelegramClient) processUpdateNewMessage(out chan domain.Message, upd *client.UpdateNewMessage) (<-chan domain.Message, error) {
-	if !upd.Message.IsChannelPost {
+	if upd.Message.IsChannelPost {
+		if upd.Message.MessageThreadId == 0 {
 			t.logger.Info("processUpdateNewMessage",
-		!upd.Message.IsChannelPost ,"not a channel post",
-		"chat_id", upd.Message.ChatId,
-		"thread_id", upd.Message.MessageThreadId,
-		)
-		return out, nil
+				"chat_id", upd.Message.ChatId,
+				"thread_id", upd.Message.MessageThreadId,
+				"not a thread root",
+			)
+			return out, nil
+		}
+		return t.processChannelPostThread(out, upd.Message.ChatId, upd.Message.MessageThreadId)
 	}
+
+	// Сообщение из обсуждения: связываем его с канальным постом по MessageThreadId.
 	if upd.Message.MessageThreadId == 0 {
-		// обычный групповой чат/сообщение — не наш кейс
-		t.logger.Info("processUpdateNewMessage",
-		"chat_id", upd.Message.ChatId,
-		"thread_id", upd.Message.MessageThreadId,
-		upd.Message, "not a thread root",
-		)
 		return out, nil
 	}
-	chatName, err := t.getChatTitle(upd.Message.ChatId)
+
+	linkedChatID, ok := t.getLinkedChannelID(upd.Message.ChatId)
+	if !ok {
+		return out, nil
+	}
+
+	return t.processChannelPostThread(out, linkedChatID, upd.Message.MessageThreadId)
+}
+
+func (t *TelegramClient) processChannelPostThread(out chan domain.Message, chatID int64, threadID int64) (<-chan domain.Message, error) {
+	chatName, err := t.getChatTitle(chatID)
 	if err != nil {
 		t.logger.Info("Error getting chat title", "err", err)
-
 		chatName = ""
 	}
+
 	threadMsg, err := t.client.GetMessage(&client.GetMessageRequest{
-		ChatId:    upd.Message.ChatId, // чат обсуждения
-		MessageId: upd.Message.MessageThreadId,
+		ChatId:    chatID,
+		MessageId: threadID,
 	})
 	if err != nil {
 		t.logger.Error("GetMessage for thread root failed",
-			"chat_id", upd.Message.ChatId,
-			"thread_id", upd.Message.MessageThreadId,
+			"chat_id", chatID,
+			"thread_id", threadID,
 			"error", err,
 		)
+		return out, err
 	}
 
 	switch content := threadMsg.Content.(type) {
 	case *client.MessageText:
-		return t.processMessageText(out, content, upd.Message.ChatId, chatName, upd.Message.MessageThreadId)
+		return t.processMessageText(out, content, chatID, chatName, threadID)
 	case *client.MessagePhoto:
-		return t.processMessagePhoto(out, content, upd.Message.ChatId, chatName, upd.Message.MessageThreadId)
+		return t.processMessagePhoto(out, content, chatID, chatName, threadID)
 	default:
-		t.logger.Debug("cant switch type update", "upd message MessageContentType()", upd.Message.Content.MessageContentType())
+		t.logger.Debug("cant switch type update", "upd message MessageContentType()", threadMsg.Content.MessageContentType())
 		return out, nil
 	}
 }
