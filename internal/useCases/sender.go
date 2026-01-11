@@ -133,7 +133,6 @@ func (s *Sender) waitRateLimit(ctx context.Context) error {
 	defer s.mu.Unlock()
 
 	if s.lastCommentAt.IsZero() {
-		// ещё ни разу не комментировали — можно сразу
 		s.lastCommentAt = time.Now()
 		return nil
 	}
