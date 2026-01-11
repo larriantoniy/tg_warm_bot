@@ -56,6 +56,7 @@ func main() {
 	factory := func(sc *ports.SessionConfig, l *slog.Logger) (ports.TelegramClient, error) {
 		// можно логгер завязывать на сессию:
 		sessionLogger := l.With("session", sc.SessionName)
+	    sessionLogger.Info("factory", "sc.SessionName", sc.SessionName)
 		return tg.NewClientFromJSON(cfg.ApiID, cfg.ApiHash, baseDir, sc.SessionName, sessionLogger, 0)
 	}
 
