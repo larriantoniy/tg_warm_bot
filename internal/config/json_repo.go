@@ -27,6 +27,7 @@ func (r *JSONSessionConfigRepo) ListSessions(ctx context.Context) ([]string, err
 	out := make([]string, 0, len(entries))
 	for _, e := range entries {
 		if e.IsDir() {
+			fmt.Println("e.Name()", e.Name())
 			out = append(out, e.Name())
 		}
 	}
