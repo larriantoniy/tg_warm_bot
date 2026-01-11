@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/larriantoniy/tg_user_bot/internal/domain"
@@ -27,6 +28,12 @@ type TelegramClient struct {
 	client *client.Client
 	logger *slog.Logger
 	selfId int64
+
+	linkedMu    sync.Mutex
+	linkedChats map[int64]int64
+
+	joinedMu    sync.Mutex
+	joinedChats map[int64]struct{}
 }
 type ClientMode int
 
@@ -45,6 +52,7 @@ func NewClientFromJSON(
 ) (*TelegramClient, error) {
 	rawCfg, err := LoadRawSessionConfig(baseDir, sessionName)
 	if err != nil {
+		log.Error("TDLib LoadRawSessionConfig", "error", err, "sessionName", sessionName, "rawCfg", rawCfg)	
 		return nil, err
 	}
 
@@ -110,6 +118,8 @@ func NewClientFromJSON(
 			client: tdCli,
 			logger: log,
 			selfId: 0, // узнаешь позже через GetMe, если нужно
+			linkedChats: make(map[int64]int64),
+			joinedChats: make(map[int64]struct{}),
 		}, nil
 	}
 
@@ -130,6 +140,8 @@ func NewClientFromJSON(
 		client: tdCli,
 		logger: log,
 		selfId: me.Id,
+		linkedChats: make(map[int64]int64),
+		joinedChats: make(map[int64]struct{}),
 	}, nil
 }
 
@@ -235,16 +247,6 @@ func (t *TelegramClient) Listen() (<-chan domain.Message, error) {
 		for update := range listener.Updates {
 
 			if upd, ok := update.(*client.UpdateNewMessage); ok {
-				if text, ok := upd.Message.Content.(*client.MessageText); ok {
-					t.logger.Info("DBG message",
-						"chat_id", upd.Message.ChatId,
-						"is_channel_post", upd.Message.IsChannelPost,
-						"thread_id", upd.Message.MessageThreadId,
-						"reply_to", fmt.Sprintf("%T", upd.Message.ReplyTo),
-						"content_type", upd.Message.Content.MessageContentType(),
-						"text", text,
-					)
-				}
 				_, err := t.processUpdateNewMessage(out, upd)
 				if err != nil {
 					t.logger.Error("Error process UpdateNewMessage msg content type", upd.Message.Content.MessageContentType())
@@ -354,12 +356,19 @@ func (t *TelegramClient) getChatTitle(chatID int64) (string, error) {
 	return chat.Title, nil
 }
 
-func (t *TelegramClient) getLinkedChannelID(discussionChatID int64) (int64, bool) {
+func (t *TelegramClient) getLinkedChatID(chatID int64) (int64, bool) {
+	t.linkedMu.Lock()
+	if linked, ok := t.linkedChats[chatID]; ok {
+		t.linkedMu.Unlock()
+		return linked, linked != 0
+	}
+	t.linkedMu.Unlock()
+
 	chat, err := t.client.GetChat(&client.GetChatRequest{
-		ChatId: discussionChatID,
+		ChatId: chatID,
 	})
 	if err != nil {
-		t.logger.Debug("GetChat failed for discussion chat", "chat_id", discussionChatID, "error", err)
+		t.logger.Debug("GetChat failed for linked chat lookup", "chat_id", chatID, "error", err)
 		return 0, false
 	}
 
@@ -372,17 +381,55 @@ func (t *TelegramClient) getLinkedChannelID(discussionChatID int64) (int64, bool
 		SupergroupId: sg.SupergroupId,
 	})
 	if err != nil {
-		t.logger.Debug("GetSupergroupFullInfo failed", "chat_id", discussionChatID, "error", err)
+		t.logger.Debug("GetSupergroupFullInfo failed", "chat_id", chatID, "error", err)
 		return 0, false
 	}
-	if info.LinkedChatId == 0 {
-		return 0, false
+
+	t.linkedMu.Lock()
+	t.linkedChats[chatID] = info.LinkedChatId
+	t.linkedMu.Unlock()
+
+	return info.LinkedChatId, info.LinkedChatId != 0
+}
+
+func (t *TelegramClient) ensureJoinedChat(chatID int64) {
+	if chatID == 0 {
+		return
 	}
-	return info.LinkedChatId, true
+
+	t.joinedMu.Lock()
+	if _, ok := t.joinedChats[chatID]; ok {
+		t.joinedMu.Unlock()
+		return
+	}
+	t.joinedMu.Unlock()
+
+	if t.isMember(chatID) {
+		t.joinedMu.Lock()
+		t.joinedChats[chatID] = struct{}{}
+		t.joinedMu.Unlock()
+		return
+	}
+
+	if _, err := t.client.JoinChat(&client.JoinChatRequest{ChatId: chatID}); err != nil {
+		t.logger.Error("JoinChat failed", "chat_id", chatID, "error", err)
+		return
+	}
+
+	t.joinedMu.Lock()
+	t.joinedChats[chatID] = struct{}{}
+	t.joinedMu.Unlock()
+	t.logger.Info("Joined linked discussion chat", "chat_id", chatID)
 }
 
 func (t *TelegramClient) processUpdateNewMessage(out chan domain.Message, upd *client.UpdateNewMessage) (<-chan domain.Message, error) {
+	if upd.Message.IsOutgoing {
+		return out, nil
+	}
 	if upd.Message.IsChannelPost {
+		if linkedChatID, ok := t.getLinkedChatID(upd.Message.ChatId); ok {
+			t.ensureJoinedChat(linkedChatID)
+		}
 		if upd.Message.MessageThreadId == 0 {
 			t.logger.Info("processUpdateNewMessage",
 				"chat_id", upd.Message.ChatId,
@@ -399,7 +446,7 @@ func (t *TelegramClient) processUpdateNewMessage(out chan domain.Message, upd *c
 		return out, nil
 	}
 
-	linkedChatID, ok := t.getLinkedChannelID(upd.Message.ChatId)
+	linkedChatID, ok := t.getLinkedChatID(upd.Message.ChatId)
 	if !ok {
 		return out, nil
 	}
@@ -530,15 +577,7 @@ func (t *TelegramClient) SendMessage(
 	text string,
 ) error {
 	if threadID != 0 {
-		if !t.isMember(chatID) {
-			_, err := t.client.JoinChat(&client.JoinChatRequest{
-				ChatId: chatID,
-			})
-			if err != nil {
-				t.logger.Error("JoinChat Discussion failed", "chat_id", chatID, "error", err)
-				return err
-			}
-		}
+		t.ensureJoinedChat(chatID)
 	}
 
 	t.SimulateTyping(chatID, threadID, text)
