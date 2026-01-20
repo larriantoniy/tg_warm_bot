@@ -1,16 +1,11 @@
 package tg
 
 import (
-	"bytes"
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
-	"image"
-	"io"
 	"log/slog"
 	"math/rand"
-	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -470,102 +465,57 @@ func (t *TelegramClient) processChannelPostThread(out chan domain.Message, chann
 		return out, err
 	}
 
-	switch content := threadMsg.Content.(type) {
-	case *client.MessageText:
-		return t.processMessageText(out, content, discussionChatID, chatName, threadID)
-	case *client.MessagePhoto:
-		return t.processMessagePhoto(out, content, discussionChatID, chatName, threadID)
-	default:
-		t.logger.Debug("cant switch type update", "upd message MessageContentType()", threadMsg.Content.MessageContentType())
+	text, ok := extractTextFromContent(threadMsg.Content)
+	if !ok {
+		t.logger.Debug("Post has no text, skipping", "content_type", threadMsg.Content.MessageContentType())
 		return out, nil
 	}
-}
-func (t *TelegramClient) processMessagePhoto(out chan domain.Message, msg *client.MessagePhoto, msgChatId int64, ChatName string, threadId int64) (<-chan domain.Message, error) {
-	var text string
 
-	var photoFileId string
+	text = strings.TrimSpace(text)
+	if text == "" {
+		t.logger.Debug("Post text is empty, skipping")
+		return out, nil
+	}
 
-	var best *client.PhotoSize
-	for i, size := range msg.Photo.Sizes {
-		if i == 0 || size.Width*size.Height > best.Width*best.Height {
-			best = size
-			photoFileId = best.Photo.Remote.Id
-		}
-	}
-	if best == nil {
-		return nil, fmt.Errorf("no photo sizes available")
-	}
-	if msg.Caption != nil {
-		text = msg.Caption.Text
-	}
-	photoFile, err := t.GetPhotoBase64ById(photoFileId)
-	if err != nil {
-		t.logger.Info("GetPhotoBase64ById", "err", err)
-	}
 	out <- domain.Message{
-		ChatID:          msgChatId,
+		ChatID:          discussionChatID,
 		Text:            text,
-		ChatName:        ChatName,
-		PhotoFile:       photoFile,
-		MessageThreadId: threadId,
+		ChatName:        chatName,
+		MessageThreadId: threadID,
 	}
 	return out, nil
 }
-func (t *TelegramClient) processMessageText(out chan domain.Message, msg *client.MessageText, msgChatId int64, ChatName string, threadId int64) (<-chan domain.Message, error) {
 
-	out <- domain.Message{
-		ChatID:          msgChatId,
-		Text:            msg.Text.Text,
-		ChatName:        ChatName,
-		MessageThreadId: threadId,
-	}
-
-	return out, nil
-
-}
-
-func (t *TelegramClient) GetPhotoBase64ById(photoId string) (string, error) {
-	//  Регистрируем remote ID и получаем локальный file ID
-	remoteFile, err := t.client.GetRemoteFile(&client.GetRemoteFileRequest{
-		RemoteFileId: photoId,
-	})
-	if err != nil {
-		return "", fmt.Errorf("GetRemoteFile failed: %w", err)
-	}
-
-	_, err = t.client.DownloadFile(&client.DownloadFileRequest{
-		FileId:      remoteFile.Id,
-		Priority:    32,
-		Offset:      0,
-		Limit:       0,
-		Synchronous: false,
-	})
-	if err != nil {
-		return "", fmt.Errorf("DownloadFile failed: %w", err)
-	}
-	// 923345799730. Начинаем опрашивать статус загрузки
-	var fileInfo *client.File
-	for {
-		fileInfo, err = t.client.GetFile(&client.GetFileRequest{
-			FileId: remoteFile.Id,
-		})
-		if err != nil {
-			return "", fmt.Errorf("GetFile polling failed: %w", err)
+func extractTextFromContent(content client.MessageContent) (string, bool) {
+	switch c := content.(type) {
+	case *client.MessageText:
+		return c.Text.Text, true
+	case *client.MessagePhoto:
+		if c.Caption != nil {
+			return c.Caption.Text, true
 		}
-		if fileInfo.Local.IsDownloadingCompleted {
-			break
+	case *client.MessageVideo:
+		if c.Caption != nil {
+			return c.Caption.Text, true
 		}
-		time.Sleep(100 * time.Millisecond)
+	case *client.MessageAnimation:
+		if c.Caption != nil {
+			return c.Caption.Text, true
+		}
+	case *client.MessageDocument:
+		if c.Caption != nil {
+			return c.Caption.Text, true
+		}
+	case *client.MessageAudio:
+		if c.Caption != nil {
+			return c.Caption.Text, true
+		}
+	case *client.MessageVoiceNote:
+		if c.Caption != nil {
+			return c.Caption.Text, true
+		}
 	}
-
-	// 3. Читаем файл из кеша TDLib
-	data, err := os.ReadFile(fileInfo.Local.Path)
-
-	if err != nil {
-		return "", fmt.Errorf("failed to read file %s: %w", fileInfo.Local.Path, err)
-	}
-	return BuildDataURI(bytes.NewReader(data))
-
+	return "", false
 }
 func (t *TelegramClient) SendMessage(
 	chatID int64,
@@ -650,30 +600,6 @@ func (t *TelegramClient) SimulateTyping(chatID, threadID int64, text string) {
 	}
 
 	time.Sleep(d)
-}
-
-// BuildDataURI читает первые 512 байт для детектирования MIME,
-// затем определяет формат через DecodeConfig и формирует Data URI.
-func BuildDataURI(r io.Reader) (string, error) {
-	// Читаем все байты (можно оптимизировать потоково)
-	data, err := io.ReadAll(r)
-	if err != nil {
-		return "", fmt.Errorf("read data: %w", err)
-	}
-
-	//  Sniff MIME
-	mimeType := http.DetectContentType(data[:min(512, len(data))]) // :contentReference[oaicite:9]{index=9}
-
-	//  DecodeConfig для более точного формата
-	if _, format, err := image.DecodeConfig(bytes.NewReader(data)); err == nil {
-		mimeType = "image/" + format // :contentReference[oaicite:10]{index=10}
-	}
-
-	// 3) Base64 encode
-	b64 := base64.StdEncoding.EncodeToString(data) // :contentReference[oaicite:11]{index=11}
-
-	// 4) Собираем Data URI согласно RFC 2397
-	return fmt.Sprintf("data:%s;base64,%s", mimeType, b64), nil // :contentReference[oaicite:12]{index=12}
 }
 
 func (t *TelegramClient) readThread(ctx context.Context, chatID int64, m *client.Message) {
