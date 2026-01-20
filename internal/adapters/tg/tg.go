@@ -426,18 +426,7 @@ func (t *TelegramClient) processUpdateNewMessage(out chan domain.Message, upd *c
 	if upd.Message.IsOutgoing {
 		return out, nil
 	}
-	if upd.Message.IsChannelPost {
-		linkedChatID, ok := t.getLinkedChatID(upd.Message.ChatId)
-		if ok {
-			t.ensureJoinedChat(linkedChatID)
-		}  else {
-			return out, nil
-		}
-		return t.processChannelPostThread(out, upd.Message.ChatId, linkedChatID, upd.Message.MessageThreadId)
-	}
-
-	// Сообщение из обсуждения: связываем его с канальным постом по MessageThreadId.
-	if upd.Message.MessageThreadId == 0 {
+	if !upd.Message.IsChannelPost {
 		return out, nil
 	}
 
@@ -445,11 +434,23 @@ func (t *TelegramClient) processUpdateNewMessage(out chan domain.Message, upd *c
 	if !ok {
 		return out, nil
 	}
+	t.ensureJoinedChat(linkedChatID)
 
-	return t.processChannelPostThread(out, linkedChatID, upd.Message.ChatId, upd.Message.MessageThreadId)
+	// Для канального поста threadID соответствует ID самого сообщения.
+	threadID := upd.Message.Id
+	if threadID == 0 {
+		return out, nil
+	}
+	return t.processChannelPostThread(out, upd.Message.ChatId, linkedChatID, threadID)
 }
 
 func (t *TelegramClient) processChannelPostThread(out chan domain.Message, channelChatID int64, discussionChatID int64, threadID int64) (<-chan domain.Message, error) {
+	t.logger.Info("Processing channel post thread",
+		"channel_chat_id", channelChatID,
+		"discussion_chat_id", discussionChatID,
+		"thread_id", threadID,
+	)
+
 	chatName, err := t.getChatTitle(channelChatID)
 	if err != nil {
 		t.logger.Info("Error getting chat title", "err", err)

@@ -17,39 +17,21 @@ import (
 const prompt = "Ты девушка.Это пост из соцсети напиши для него короткий осмысленный , доброжелательный комментарий не более 12 слов:"
 
 type Neuro struct {
-	client      *http.Client
-	ctx         *context.Context
-	logger      *slog.Logger
-	baseURL     string                   // https://openrouter.ai/api/v1
-	apiKey      string                   // TOKEN neuro
-	defaultBody *domain.DefaultNeuroBody // закодированное JSON-тело
+	client  *http.Client
+	ctx     *context.Context
+	logger  *slog.Logger
+	baseURL string // https://openrouter.ai/api/v1
+	apiKey  string // TOKEN neuro
 	// заготовленный http.Request
 }
 
 func NewNeuro(cfg *config.AppConfig, logger *slog.Logger) (*Neuro, error) {
-	// Кодируем заранее JSON-тело
-	body := domain.DefaultNeuroBody{
-		Model: domain.MistralModel, // например "mistral-small-2506"
-		Messages: []domain.NeuroMessage{
-			{
-				Role: domain.RoleUser,
-				Content: []domain.MessageContent{
-					{
-						Type: "text", // "text" для промпта
-						Text: prompt,
-					},
-				},
-			},
-		},
-	}
-
 	// 3) Собираем объект Neuro
 	return &Neuro{
-		client:      &http.Client{},
-		logger:      logger,
-		baseURL:     cfg.NeuroAddr,
-		apiKey:      cfg.NeuroToken,
-		defaultBody: &body,
+		client:  &http.Client{},
+		logger:  logger,
+		baseURL: cfg.NeuroAddr,
+		apiKey:  cfg.NeuroToken,
 	}, nil
 }
 
@@ -65,30 +47,40 @@ func retry(attempts int, sleep time.Duration, fn func() error) error {
 }
 
 func (n *Neuro) GetComment(ctx context.Context, msg *domain.Message) (string, error) {
-	// Подготовка тела
-	body := *n.defaultBody
-
-	body.Messages[0].Content[0].Text = body.Messages[0].Content[0].Text + msg.Text
-
-	bodyBytes, err := json.Marshal(body)
-	if err != nil {
-		return "", fmt.Errorf("marshal body: %w", err)
-	}
-
-	// Создание запроса
-	bodyBytesReader := bytes.NewReader(bodyBytes)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, n.baseURL, bodyBytesReader)
-	if err != nil {
-		return "", fmt.Errorf("new request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+n.apiKey)
-
 	// Ответ нейросети
 	var nr domain.NeuroResponse
-	n.logger.Info("Neuro request ", req.Body, req.Header, req.URL)
 
 	err = retry(3, time.Second, func() error {
+		body := domain.DefaultNeuroBody{
+			Model: domain.MistralModel, // например "mistral-small-2506"
+			Messages: []domain.NeuroMessage{
+				{
+					Role: domain.RoleUser,
+					Content: []domain.MessageContent{
+						{
+							Type: "text", // "text" для промпта
+							Text: prompt + msg.Text,
+						},
+					},
+				},
+			},
+		}
+
+		bodyBytes, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("marshal body: %w", err)
+		}
+
+		bodyBytesReader := bytes.NewReader(bodyBytes)
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, n.baseURL, bodyBytesReader)
+		if err != nil {
+			return fmt.Errorf("new request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+n.apiKey)
+
+		n.logger.Info("Neuro request", "url", req.URL.String())
+
 		resp, err := n.client.Do(req)
 		if err != nil {
 			n.logger.Error("HTTP request to neuro failed", "err", err)
