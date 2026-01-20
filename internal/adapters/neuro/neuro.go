@@ -50,7 +50,7 @@ func (n *Neuro) GetComment(ctx context.Context, msg *domain.Message) (string, er
 	// Ответ нейросети
 	var nr domain.NeuroResponse
 
-	err = retry(3, time.Second, func() error {
+	err := retry(3, time.Second, func() error {
 		body := domain.DefaultNeuroBody{
 			Model: domain.MistralModel, // например "mistral-small-2506"
 			Messages: []domain.NeuroMessage{
