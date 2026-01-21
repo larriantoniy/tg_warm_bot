@@ -26,4 +26,5 @@ type TelegramClient interface {
 	SimulateTyping(chatID, threadID int64, text string)
 	ImitateReading(ctx context.Context, chatID int64)
 	ResolveUsername(username string) (int64, error)
+	CanSendToChat(chatID int64) bool
 }

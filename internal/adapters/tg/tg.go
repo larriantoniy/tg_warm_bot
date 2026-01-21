@@ -277,6 +277,31 @@ func (t *TelegramClient) IsMember(chatID int64) bool {
 	return t.isMember(chatID)
 }
 
+func (t *TelegramClient) CanSendToChat(chatID int64) bool {
+	member, err := t.client.GetChatMember(&client.GetChatMemberRequest{
+		ChatId:   chatID,
+		MemberId: &client.MessageSenderUser{UserId: t.selfId},
+	})
+	if err != nil {
+		t.logger.Warn("GetChatMember failed for CanSendToChat", "chat_id", chatID, "error", err)
+		return false
+	}
+
+	switch status := member.Status.(type) {
+	case *client.ChatMemberStatusMember, *client.ChatMemberStatusAdministrator, *client.ChatMemberStatusCreator:
+		return true
+	case *client.ChatMemberStatusRestricted:
+		if status.Permissions != nil {
+			return status.Permissions.CanSendMessages
+		}
+		return status.IsMember
+	case *client.ChatMemberStatusBanned:
+		return false
+	default:
+		return false
+	}
+}
+
 func (t *TelegramClient) IsChannelMember(username string) (bool, error) {
 
 	chat, err := t.client.SearchPublicChat(&client.SearchPublicChatRequest{

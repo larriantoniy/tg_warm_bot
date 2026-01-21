@@ -73,6 +73,13 @@ func (s *Sender) SendComment(ctx context.Context, msg *domain.Message) error {
 		)
 		return tg.ErrRateLimited
 	}
+	if !s.tg.CanSendToChat(msg.ChatID) {
+		s.log.Info("Skip SendComment: cannot send to discussion chat",
+			"chat_id", msg.ChatID,
+			"msg_thread_id", msg.MessageThreadId,
+		)
+		return nil
+	}
 	//  сначала генерим текст от нейросети
 
 	replyText, err := s.neuro.GetComment(ctx, msg)
