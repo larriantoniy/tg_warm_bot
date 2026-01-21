@@ -26,6 +26,9 @@ type Neuro struct {
 }
 
 func NewNeuro(cfg *config.AppConfig, logger *slog.Logger) (*Neuro, error) {
+	if cfg.NeuroToken == "" {
+		logger.Warn("Neuro token is empty; requests will fail with 401")
+	}
 	// 3) Собираем объект Neuro
 	return &Neuro{
 		client:  &http.Client{},
