@@ -6,7 +6,7 @@ type NeuroModel string
 type MessageRole string
 
 const (
-	MistralModel string      = "mistralai/mistral-small-24b-instruct"
+	MistralModel string      = "mistralai/mistral-small-3.2-24b-instruct"
 	RoleUser     MessageRole = "user"
 )
 

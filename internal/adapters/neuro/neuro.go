@@ -14,7 +14,7 @@ import (
 	"github.com/larriantoniy/tg_user_bot/internal/domain"
 )
 
-const prompt = "Ты девушка.Это пост из соцсети напиши для него короткий осмысленный , доброжелательный комментарий не более 12 слов:"
+const systemPrompt = "Экспертный комментарий к посту в Telegram. Русский язык. До 12 слов. Доброжелательно и уверенно. Без вопросов и выдуманных фактов. Ровно одно эмодзи."
 
 type Neuro struct {
 	client  *http.Client
@@ -51,6 +51,8 @@ func (n *Neuro) GetComment(ctx context.Context, msg *domain.Message) (string, er
 	var nr domain.NeuroResponse
 
 	err := retry(3, time.Second, func() error {
+		userPrompt := "Текст поста:\n"
+		fullPrompt := systemPrompt + "\n" + userPrompt + msg.Text
 		body := domain.DefaultNeuroBody{
 			Model: domain.MistralModel, // например "mistral-small-2506"
 			Messages: []domain.NeuroMessage{
@@ -58,8 +60,8 @@ func (n *Neuro) GetComment(ctx context.Context, msg *domain.Message) (string, er
 					Role: domain.RoleUser,
 					Content: []domain.MessageContent{
 						{
-							Type: "text", // "text" для промпта
-							Text: prompt + msg.Text,
+							Type: "text",
+							Text: fullPrompt,
 						},
 					},
 				},
