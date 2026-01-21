@@ -70,7 +70,12 @@ func (n *Neuro) GetComment(ctx context.Context, msg *domain.Message) (string, er
 		}
 
 		body := domain.DefaultNeuroBody{
-			Model: domain.MistralModel, // например "mistral-small-2506"
+			Model:            domain.MistralModel, // например "mistral-small-2506"
+			Temperature:      0.4,
+			TopP:             0.9,
+			PresencePenalty:  0.2,
+			FrequencyPenalty: 0.3,
+			MaxTokens:        120,
 			Messages: []domain.NeuroMessage{
 				{
 					Role: domain.RoleUser,

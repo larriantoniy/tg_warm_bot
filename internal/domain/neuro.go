@@ -26,8 +26,13 @@ type NeuroMessage struct {
 }
 
 type DefaultNeuroBody struct {
-	Model    string         `json:"model"`
-	Messages []NeuroMessage `json:"messages"`
+	Model            string         `json:"model"`
+	Messages         []NeuroMessage `json:"messages"`
+	Temperature      float64        `json:"temperature,omitempty"`
+	TopP             float64        `json:"top_p,omitempty"`
+	PresencePenalty  float64        `json:"presence_penalty,omitempty"`
+	FrequencyPenalty float64        `json:"frequency_penalty,omitempty"`
+	MaxTokens        int            `json:"max_tokens,omitempty"`
 }
 
 // NeuroResponse соответствует корневому JSON-объекту.
