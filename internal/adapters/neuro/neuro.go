@@ -14,12 +14,12 @@ import (
 	"github.com/larriantoniy/tg_user_bot/internal/domain"
 )
 
-const systemPrompt = "Экспертный комментарий к посту в Telegram. Русский язык. До 12 слов. Доброжелательно и уверенно. Без вопросов и выдуманных фактов. Ровно одно эмодзи."
+const systemPrompt = "Экспертный комментарий к посту в Telegram. Русский язык. До 12 слов. Доброжелательно и уверенно. Без вопросов и выдуманных фактов. Ровно одно эмодзи.\nТекст поста:\n"
 
 type Neuro struct {
 	client  *http.Client
 	ctx     *context.Context
-	logger  *slog.Logger
+	logger  *slog.Logger 
 	baseURL string // https://openrouter.ai/api/v1
 	apiKey  string // TOKEN neuro
 	// заготовленный http.Request
@@ -51,19 +51,27 @@ func (n *Neuro) GetComment(ctx context.Context, msg *domain.Message) (string, er
 	var nr domain.NeuroResponse
 
 	err := retry(3, time.Second, func() error {
-		userPrompt := "Текст поста:\n"
-		fullPrompt := systemPrompt + "\n" + userPrompt + msg.Text
+		content := []domain.MessageContent{
+			{
+				Type: "text", // "text" для промпта
+				Text: systemPrompt + msg.Text,
+			}, 
+		}
+		if msg.PhotoFile != "" { 
+			content = append(content, domain.MessageContent{
+				Type: "image_url",
+				ImageUrl: &domain.ImageUrl{
+					Url: msg.PhotoFile,
+				},
+			})
+		}
+
 		body := domain.DefaultNeuroBody{
 			Model: domain.MistralModel, // например "mistral-small-2506"
 			Messages: []domain.NeuroMessage{
 				{
 					Role: domain.RoleUser,
-					Content: []domain.MessageContent{
-						{
-							Type: "text",
-							Text: fullPrompt,
-						},
-					},
+					Content: content,
 				},
 			},
 		}

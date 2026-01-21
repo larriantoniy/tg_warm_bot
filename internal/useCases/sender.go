@@ -86,7 +86,6 @@ func (s *Sender) SendComment(ctx context.Context, msg *domain.Message) error {
 		return nil
 	}
 
-	// 923345799730) планируем задержку 15–30 минут
 	s.log.Info("Planned comment delay",
 		"chat_id", msg.ChatID,
 		"msg_thread_id", msg.MessageThreadId,
