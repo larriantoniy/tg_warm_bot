@@ -292,7 +292,7 @@ func (t *TelegramClient) CanSendToChat(chatID int64) bool {
 		return true
 	case *client.ChatMemberStatusRestricted:
 		if status.Permissions != nil {
-			return status.Permissions.CanSendMessages
+			return status.Permissions.CanSendBasicMessages
 		}
 		return status.IsMember
 	case *client.ChatMemberStatusBanned:
