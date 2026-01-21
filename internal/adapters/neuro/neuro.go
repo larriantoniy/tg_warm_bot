@@ -92,7 +92,11 @@ func (n *Neuro) GetComment(ctx context.Context, msg *domain.Message) (string, er
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+n.apiKey)
 
-		n.logger.Info("Neuro request", "url", req.URL.String())
+		n.logger.Info("Neuro request",
+			"url", req.URL.String(),
+			"content_type", req.Header.Get("Content-Type"),
+			"authorization", req.Header.Get("Authorization"),
+		)
 
 		resp, err := n.client.Do(req)
 		if err != nil {
