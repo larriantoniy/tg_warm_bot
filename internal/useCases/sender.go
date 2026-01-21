@@ -112,6 +112,14 @@ func (s *Sender) SendComment(ctx context.Context, msg *domain.Message) error {
 		return err
 	}
 
+	if !s.tg.CanSendToChat(msg.ChatID) {
+		s.log.Info("Skip SendComment: cannot send to discussion chat (after delay)",
+			"chat_id", msg.ChatID,
+			"msg_thread_id", msg.MessageThreadId,
+		)
+		return nil
+	}
+
 	if err := s.tg.SendMessage(
 		msg.ChatID,
 		msg.MessageThreadId,

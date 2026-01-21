@@ -595,6 +595,10 @@ func (t *TelegramClient) SendMessage(
 }
 
 func (t *TelegramClient) SimulateTyping(chatID, threadID int64, text string) {
+	if !t.CanSendToChat(chatID) {
+		t.logger.Info("Skip typing: cannot send to chat", "chat_id", chatID)
+		return
+	}
 	//  Послали "печатает..."
 	_, err := t.client.SendChatAction(&client.SendChatActionRequest{
 		ChatId:          chatID,
