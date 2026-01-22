@@ -184,7 +184,7 @@ func (t *TelegramClient) JoinChannels(chs []string) {
 	//  Логируем входные данные
 	t.logger.Info("JoinChannels called", "channels", chs)
 
-	// 923345799730) Получаем уже присоединённые
+	// Получаем уже присоединённые
 	joinedChs, err := t.GetJoinedChannelIdentifiers()
 	if err != nil {
 		t.logger.Error("Failed to fetch joined channels, aborting", "error", err)
