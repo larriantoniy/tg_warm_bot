@@ -80,6 +80,13 @@ func (s *Sender) SendComment(ctx context.Context, msg *domain.Message) error {
 		)
 		return nil
 	}
+	if !s.tg.IsMember(msg.ChatID) {
+		s.log.Info("Skip SendComment: not a member of discussion chat",
+			"chat_id", msg.ChatID,
+			"msg_thread_id", msg.MessageThreadId,
+		)
+		return nil
+	}
 	//  сначала генерим текст от нейросети
 
 	replyText, err := s.neuro.GetComment(ctx, msg)
@@ -133,8 +140,12 @@ func (s *Sender) SendComment(ctx context.Context, msg *domain.Message) error {
 		s.log.Error("SendComment", "error", err)
 		return err
 	}
+	s.log.Info("Comment sent",
+		"chat_id", msg.ChatID,
+		"msg_thread_id", msg.MessageThreadId,
+	)
 	// 5. отправляем уведомление Owner
-	err = s.sendOwnerNotify(msg.Text, replyText)
+	err = s.sendOwnerNotify(msg, replyText)
 	if err != nil {
 		s.log.Warn("SendComment", "error", err)
 	}
@@ -171,7 +182,7 @@ func (s *Sender) waitRateLimit(ctx context.Context) error {
 		return nil
 	}
 }
-func (s *Sender) sendOwnerNotify(text string, replyText string) error {
+func (s *Sender) sendOwnerNotify(msg *domain.Message, replyText string) error {
 	if s.ownerUsername == "" {
 		return nil
 	}
@@ -189,14 +200,36 @@ func (s *Sender) sendOwnerNotify(text string, replyText string) error {
 	toOwner := fmt.Sprintf(
 		"💬 Новый комментарий:\n\n%s\n\nНа сообщение: %s",
 		replyText,
-		text,
+		msg.Text,
 	)
+	postLink := s.buildPostLink(msg)
+	if postLink != "" {
+		toOwner = fmt.Sprintf("%s\n\nСсылка: %s", toOwner, postLink)
+	}
 	err := s.tg.SendMessage(s.ownerUserID, 0, toOwner)
 	if err != nil {
 		s.log.Warn("Send Owner Notify", "error", err)
 		return err
 	}
 	return nil
+}
+
+func (s *Sender) buildPostLink(msg *domain.Message) string {
+	if msg == nil || msg.ChannelID == 0 || msg.MessageThreadId == 0 {
+		return ""
+	}
+
+	absID := msg.ChannelID
+	if absID < 0 {
+		absID = -absID
+	}
+
+	const channelOffset int64 = 1000000000000
+	if absID > channelOffset {
+		absID -= channelOffset
+	}
+
+	return fmt.Sprintf("https://t.me/c/%d/%d", absID, msg.MessageThreadId)
 }
 
 func randomDelay(ctx context.Context, min, max time.Duration) error {

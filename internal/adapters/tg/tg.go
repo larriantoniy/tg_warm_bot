@@ -503,6 +503,7 @@ func (t *TelegramClient) processChannelPostThread(out chan domain.Message, chann
 	}
 
 	out <- domain.Message{
+		ChannelID:       channelChatID,
 		ChatID:          discussionChatID,
 		Text:            text,
 		ChatName:        chatName,
