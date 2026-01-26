@@ -202,9 +202,9 @@ func (s *Sender) sendOwnerNotify(msg *domain.Message, replyText string) error {
 		replyText,
 		msg.Text,
 	)
-	postLink := s.buildPostLink(msg)
-	if postLink != "" {
-		toOwner = fmt.Sprintf("%s\n\nСсылка: %s", toOwner, postLink)
+	chatLink := s.buildChatLink(msg)
+	if chatLink != "" {
+		toOwner = fmt.Sprintf("%s\n\nСсылка: %s", toOwner, chatLink)
 	}
 	err := s.tg.SendMessage(s.ownerUserID, 0, toOwner)
 	if err != nil {
@@ -214,12 +214,12 @@ func (s *Sender) sendOwnerNotify(msg *domain.Message, replyText string) error {
 	return nil
 }
 
-func (s *Sender) buildPostLink(msg *domain.Message) string {
-	if msg == nil || msg.ChannelID == 0 || msg.MessageThreadId == 0 {
+func (s *Sender) buildChatLink(msg *domain.Message) string {
+	if msg == nil || msg.ChatID == 0 {
 		return ""
 	}
 
-	absID := msg.ChannelID
+	absID := msg.ChatID
 	if absID < 0 {
 		absID = -absID
 	}
@@ -229,7 +229,7 @@ func (s *Sender) buildPostLink(msg *domain.Message) string {
 		absID -= channelOffset
 	}
 
-	return fmt.Sprintf("https://t.me/c/%d/%d", absID, msg.MessageThreadId)
+	return fmt.Sprintf("https://t.me/c/%d", absID)
 }
 
 func randomDelay(ctx context.Context, min, max time.Duration) error {
