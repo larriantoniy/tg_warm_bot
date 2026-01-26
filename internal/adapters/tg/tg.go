@@ -24,11 +24,10 @@ type TelegramClient struct {
 	logger *slog.Logger
 	selfId int64
 
-	linkedMu    sync.Mutex
-	linkedChats map[int64]int64
-
-	joinedMu    sync.Mutex
-	joinedChats map[int64]struct{}
+	mu           sync.Mutex
+	linkedChats  map[int64]int64
+	joinedChats  map[int64]struct{}
+	blockedChats map[int64]struct{}
 }
 type ClientMode int
 
@@ -115,6 +114,7 @@ func NewClientFromJSON(
 			selfId: 0, // узнаешь позже через GetMe, если нужно
 			linkedChats: make(map[int64]int64),
 			joinedChats: make(map[int64]struct{}),
+			blockedChats: make(map[int64]struct{}),
 		}, nil
 	}
 
@@ -137,6 +137,7 @@ func NewClientFromJSON(
 		selfId: me.Id,
 		linkedChats: make(map[int64]int64),
 		joinedChats: make(map[int64]struct{}),
+		blockedChats: make(map[int64]struct{}),
 	}, nil
 }
 
@@ -377,12 +378,12 @@ func (t *TelegramClient) getChatTitle(chatID int64) (string, error) {
 }
 
 func (t *TelegramClient) getLinkedChatID(chatID int64) (int64, bool) {
-	t.linkedMu.Lock()
+	t.mu.Lock()
 	if linked, ok := t.linkedChats[chatID]; ok {
-		t.linkedMu.Unlock()
+		t.mu.Unlock()
 		return linked, linked != 0
 	}
-	t.linkedMu.Unlock()
+	t.mu.Unlock()
 
 	chat, err := t.client.GetChat(&client.GetChatRequest{
 		ChatId: chatID,
@@ -405,9 +406,9 @@ func (t *TelegramClient) getLinkedChatID(chatID int64) (int64, bool) {
 		return 0, false
 	}
 
-	t.linkedMu.Lock()
+	t.mu.Lock()
 	t.linkedChats[chatID] = info.LinkedChatId
-	t.linkedMu.Unlock()
+	t.mu.Unlock()
 
 	return info.LinkedChatId, info.LinkedChatId != 0
 }
@@ -417,28 +418,33 @@ func (t *TelegramClient) ensureJoinedChat(chatID int64) {
 		return
 	}
 
-	t.joinedMu.Lock()
+	t.mu.Lock()
 	if _, ok := t.joinedChats[chatID]; ok {
-		t.joinedMu.Unlock()
+		t.mu.Unlock()
 		return
 	}
-	t.joinedMu.Unlock()
+	t.mu.Unlock()
 
 	if t.isMember(chatID) {
-		t.joinedMu.Lock()
+		t.mu.Lock()
 		t.joinedChats[chatID] = struct{}{}
-		t.joinedMu.Unlock()
+		t.mu.Unlock()
 		return
 	}
 
 	if _, err := t.client.JoinChat(&client.JoinChatRequest{ChatId: chatID}); err != nil {
 		t.logger.Error("JoinChat failed", "chat_id", chatID, "error", err)
+		if isInviteRequestSent(err) {
+			t.mu.Lock()
+			t.blockedChats[chatID] = struct{}{}
+			t.mu.Unlock()
+		}
 		return
 	}
 
-	t.joinedMu.Lock()
+	t.mu.Lock()
 	t.joinedChats[chatID] = struct{}{}
-	t.joinedMu.Unlock()
+	t.mu.Unlock()
 	t.logger.Info("Joined linked discussion chat", "chat_id", chatID)
 }
 
@@ -465,6 +471,11 @@ func (t *TelegramClient) processUpdateNewMessage(out chan domain.Message, upd *c
 }
 
 func (t *TelegramClient) processChannelPostThread(out chan domain.Message, channelChatID int64, discussionChatID int64, threadID int64) (<-chan domain.Message, error) {
+	if t.isChatBlocked(discussionChatID) {
+		t.logger.Info("Skip post thread: invite required for discussion chat", "chat_id", discussionChatID)
+		return out, nil
+	}
+
 	t.logger.Info("Processing channel post thread",
 		"channel_chat_id", channelChatID,
 		"discussion_chat_id", discussionChatID,
@@ -731,6 +742,21 @@ func isTooManyRequests(err error) bool {
 		}
 	}
 	return false
+}
+
+func isInviteRequestSent(err error) bool {
+	var tdErr *client.Error
+	if errors.As(err, &tdErr) {
+		return strings.Contains(strings.ToUpper(tdErr.Message), "INVITE_REQUEST_SENT")
+	}
+	return strings.Contains(strings.ToUpper(err.Error()), "INVITE_REQUEST_SENT")
+}
+
+func (t *TelegramClient) isChatBlocked(chatID int64) bool {
+	t.mu.Lock()
+	_, ok := t.blockedChats[chatID]
+	t.mu.Unlock()
+	return ok
 }
 
 func (t *TelegramClient) ResolveUsername(username string) (int64, error) {
