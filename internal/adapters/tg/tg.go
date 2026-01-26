@@ -731,13 +731,13 @@ func (t *TelegramClient) ImitateReading(ctx context.Context, chatID int64) {
 func isTooManyRequests(err error) bool {
 
 	// TDLib оборачивается в client.Error
-	var tdErr *client.Error
-	if errors.As(err, &tdErr) {
+	var respErr client.ResponseError
+	if errors.As(err, &respErr) && respErr.Err != nil {
 		// обычно Code == 429, но подстрахуемся по тексту
-		if tdErr.Code == 429 {
+		if respErr.Err.Code == 429 {
 			return true
 		}
-		if strings.Contains(strings.ToLower(tdErr.Message), "too many requests") {
+		if strings.Contains(strings.ToLower(respErr.Err.Message), "too many requests") {
 			return true
 		}
 	}
@@ -745,9 +745,9 @@ func isTooManyRequests(err error) bool {
 }
 
 func isInviteRequestSent(err error) bool {
-	var tdErr *client.Error
-	if errors.As(err, &tdErr) {
-		return strings.Contains(strings.ToUpper(tdErr.Message), "INVITE_REQUEST_SENT")
+	var respErr client.ResponseError
+	if errors.As(err, &respErr) && respErr.Err != nil {
+		return strings.Contains(strings.ToUpper(respErr.Err.Message), "INVITE_REQUEST_SENT")
 	}
 	return strings.Contains(strings.ToUpper(err.Error()), "INVITE_REQUEST_SENT")
 }
