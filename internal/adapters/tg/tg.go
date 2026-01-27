@@ -24,10 +24,10 @@ type TelegramClient struct {
 	logger *slog.Logger
 	selfId int64
 
-	mu           sync.Mutex
-	linkedChats  map[int64]int64
-	joinedChats  map[int64]struct{}
-	blockedChats map[int64]struct{}
+	mu          sync.Mutex
+	linkedChats map[int64]int64
+	joinedChats map[int64]struct{}
+	blockedTill map[int64]time.Time
 }
 type ClientMode int
 
@@ -114,7 +114,7 @@ func NewClientFromJSON(
 			selfId: 0, // узнаешь позже через GetMe, если нужно
 			linkedChats: make(map[int64]int64),
 			joinedChats: make(map[int64]struct{}),
-			blockedChats: make(map[int64]struct{}),
+			blockedTill: make(map[int64]time.Time),
 		}, nil
 	}
 
@@ -137,7 +137,7 @@ func NewClientFromJSON(
 		selfId: me.Id,
 		linkedChats: make(map[int64]int64),
 		joinedChats: make(map[int64]struct{}),
-		blockedChats: make(map[int64]struct{}),
+		blockedTill: make(map[int64]time.Time),
 	}, nil
 }
 
@@ -418,6 +418,10 @@ func (t *TelegramClient) ensureJoinedChat(chatID int64) {
 		return
 	}
 
+	if t.isChatBlocked(chatID) {
+		return
+	}
+
 	t.mu.Lock()
 	if _, ok := t.joinedChats[chatID]; ok {
 		t.mu.Unlock()
@@ -434,10 +438,8 @@ func (t *TelegramClient) ensureJoinedChat(chatID int64) {
 
 	if _, err := t.client.JoinChat(&client.JoinChatRequest{ChatId: chatID}); err != nil {
 		t.logger.Error("JoinChat failed", "chat_id", chatID, "error", err)
-		if isInviteRequestSent(err) {
-			t.mu.Lock()
-			t.blockedChats[chatID] = struct{}{}
-			t.mu.Unlock()
+		if isInviteRequestSent(err) || isTooManyRequests(err) {
+			t.blockChat(chatID)
 		}
 		return
 	}
@@ -754,9 +756,20 @@ func isInviteRequestSent(err error) bool {
 
 func (t *TelegramClient) isChatBlocked(chatID int64) bool {
 	t.mu.Lock()
-	_, ok := t.blockedChats[chatID]
+	until, ok := t.blockedTill[chatID]
+	if ok && time.Now().After(until) {
+		delete(t.blockedTill, chatID)
+		ok = false
+	}
 	t.mu.Unlock()
 	return ok
+}
+
+func (t *TelegramClient) blockChat(chatID int64) {
+	const blockTTL = 72 * time.Hour
+	t.mu.Lock()
+	t.blockedTill[chatID] = time.Now().Add(blockTTL)
+	t.mu.Unlock()
 }
 
 func (t *TelegramClient) ResolveUsername(username string) (int64, error) {
