@@ -92,7 +92,14 @@ func NewClientFromJSON(
 
 	// ✅ В AUTH-режиме запускаем CliInteractor, чтобы были промпты в консоли
 	if mode == ClientModeAuth {
-		go logAuthStates(authorizer, log)
+		go func() {
+			for state := range authorizer.State {
+				if state == nil {
+					continue
+				}
+				log.Info("Auth state", "state", state.AuthorizationStateType())
+			}
+		}()
 		go client.CliInteractor(authorizer)
 	}
 
@@ -791,13 +798,4 @@ func (t *TelegramClient) ResolveUsername(username string) (int64, error) {
 	}
 
 	return res.Id, nil
-}
-
-func logAuthStates(authorizer *client.ClientAuthorizer, log *slog.Logger) {
-	for state := range authorizer.State {
-		if state == nil {
-			continue
-		}
-		log.Info("Auth state", "state", state.AuthorizationStateType())
-	}
 }
