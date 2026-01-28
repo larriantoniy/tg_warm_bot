@@ -54,6 +54,11 @@ func (c *RawSessionConfig) ToProxyConfig() (*ports.ProxyConfig, error) {
 	user, _ := c.Proxy[4].(string)
 	pass, _ := c.Proxy[5].(string)
 
+	if !useAuth {
+		// флаг proxy=false → не включаем прокси вообще
+		return nil, nil
+	}
+
 	if host == "" || port == 0 {
 		return nil, nil
 	}
@@ -63,10 +68,8 @@ func (c *RawSessionConfig) ToProxyConfig() (*ports.ProxyConfig, error) {
 		Server:  host,
 		Port:    port,
 	}
-	if useAuth {
-		p.Username = user
-		p.Password = pass
-	}
+	p.Username = user
+	p.Password = pass
 	return p, nil
 }
 
