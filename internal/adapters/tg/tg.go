@@ -798,15 +798,21 @@ func logAuthStates(tdCli *client.Client, log *slog.Logger) {
 	defer ticker.Stop()
 
 	var lastState string
+	var lastLogged time.Time
 	for range ticker.C {
 		state, err := tdCli.GetAuthorizationState()
-		if err != nil || state == nil {
+		if err != nil {
+			log.Warn("Auth state check failed", "error", err)
+			continue
+		}
+		if state == nil {
 			continue
 		}
 		stateType := state.AuthorizationStateType()
-		if stateType != lastState {
+		if stateType != lastState || time.Since(lastLogged) >= 10*time.Second {
 			log.Info("Auth state", "state", stateType)
 			lastState = stateType
+			lastLogged = time.Now()
 		}
 		if stateType == client.TypeAuthorizationStateReady || stateType == client.TypeAuthorizationStateClosed {
 			return
