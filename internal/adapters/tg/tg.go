@@ -92,14 +92,6 @@ func NewClientFromJSON(
 
 	// ✅ В AUTH-режиме запускаем CliInteractor, чтобы были промпты в консоли
 	if mode == ClientModeAuth {
-		go func() {
-			for state := range authorizer.State {
-				if state == nil {
-					continue
-				}
-				log.Info("Auth state", "state", state.AuthorizationStateType())
-			}
-		}()
 		go client.CliInteractor(authorizer)
 	}
 
@@ -111,6 +103,7 @@ func NewClientFromJSON(
 
 	// === Режим AUTH: просто возвращаем клиента, без GetMe ===
 	if mode == ClientModeAuth {
+		go logAuthStates(tdCli, log)
 		log.Info("TDLib client started in AUTH mode",
 			"session", rawCfg.SessionFile,
 			"phone", rawCfg.Phone,
@@ -798,4 +791,25 @@ func (t *TelegramClient) ResolveUsername(username string) (int64, error) {
 	}
 
 	return res.Id, nil
+}
+
+func logAuthStates(tdCli *client.Client, log *slog.Logger) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	var lastState string
+	for range ticker.C {
+		state, err := tdCli.GetAuthorizationState()
+		if err != nil || state == nil {
+			continue
+		}
+		stateType := state.AuthorizationStateType()
+		if stateType != lastState {
+			log.Info("Auth state", "state", stateType)
+			lastState = stateType
+		}
+		if stateType == client.TypeAuthorizationStateReady || stateType == client.TypeAuthorizationStateClosed {
+			return
+		}
+	}
 }
