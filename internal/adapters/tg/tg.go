@@ -28,6 +28,12 @@ type TelegramClient struct {
 	linkedChats map[int64]int64
 	joinedChats map[int64]struct{}
 	blockedTill map[int64]time.Time
+	threadMap   map[threadKey]int64
+}
+
+type threadKey struct {
+	DiscussionChatID int64
+	ThreadID         int64
 }
 type ClientMode int
 
@@ -116,6 +122,7 @@ func NewClientFromJSON(
 			linkedChats: make(map[int64]int64),
 			joinedChats: make(map[int64]struct{}),
 			blockedTill: make(map[int64]time.Time),
+			threadMap: make(map[threadKey]int64),
 		}, nil
 	}
 
@@ -139,6 +146,7 @@ func NewClientFromJSON(
 		linkedChats: make(map[int64]int64),
 		joinedChats: make(map[int64]struct{}),
 		blockedTill: make(map[int64]time.Time),
+		threadMap: make(map[threadKey]int64),
 	}, nil
 }
 
@@ -470,7 +478,6 @@ func (t *TelegramClient) processUpdateNewMessage(out chan domain.Message, upd *c
 	}
 	t.ensureJoinedChat(linkedChatID)
 
-	// Для канального поста threadID соответствует ID самого сообщения.
 	threadID := upd.Message.Id
 	if threadID == 0 {
 		return out, nil
@@ -483,6 +490,10 @@ func (t *TelegramClient) processChannelPostThread(out chan domain.Message, chann
 		t.logger.Info("Skip post thread: invite required for discussion chat", "chat_id", discussionChatID)
 		return out, nil
 	}
+
+	t.mu.Lock()
+	t.threadMap[threadKey{DiscussionChatID: discussionChatID, ThreadID: threadID}] = channelChatID
+	t.mu.Unlock()
 
 	t.logger.Info("Processing channel post thread",
 		"channel_chat_id", channelChatID,
@@ -587,9 +598,22 @@ func (t *TelegramClient) SendMessage(
 
 	if threadID != 0 {
 		req.MessageThreadId = threadID
+		t.mu.Lock()
+		extChatID, ok := t.threadMap[threadKey{DiscussionChatID: chatID, ThreadID: threadID}]
+		t.mu.Unlock()
+		if ok {
+			req.ReplyTo = &client.InputMessageReplyToExternalMessage{
+				ChatId:    extChatID,
+				MessageId: threadID,
+			}
+		} else {
+			req.ReplyTo = &client.InputMessageReplyToMessage{
+				MessageId: threadID,
+			}
+		}
 	}
 
-	_, err := t.client.SendMessage(req)
+	sentMsg, err := t.client.SendMessage(req)
 	if err != nil {
 		// 🔍 проверяем, не словили ли лимит
 		if isTooManyRequests(err) {
@@ -609,6 +633,14 @@ func (t *TelegramClient) SendMessage(
 			"error", err,
 		)
 		return err
+	}
+
+	if sentMsg == nil || sentMsg.Id == 0 {
+		t.logger.Error("SendMessage returned empty message",
+			"chat_id", chatID,
+			"thread_id", threadID,
+		)
+		return fmt.Errorf("send message failed: empty message")
 	}
 
 	return nil

@@ -74,14 +74,14 @@ func (s *Sender) SendComment(ctx context.Context, msg *domain.Message) error {
 		return tg.ErrRateLimited
 	}
 	if !s.tg.CanSendToChat(msg.ChatID) {
-		s.log.Info("Skip SendComment: cannot send to discussion chat",
+		s.log.Info("Skip SendComment: cannot send to chat",
 			"chat_id", msg.ChatID,
 			"msg_thread_id", msg.MessageThreadId,
 		)
 		return nil
 	}
 	if !s.tg.IsMember(msg.ChatID) {
-		s.log.Info("Skip SendComment: not a member of discussion chat",
+		s.log.Info("Skip SendComment: not a member of chat",
 			"chat_id", msg.ChatID,
 			"msg_thread_id", msg.MessageThreadId,
 		)
@@ -120,7 +120,7 @@ func (s *Sender) SendComment(ctx context.Context, msg *domain.Message) error {
 	}
 
 	if !s.tg.CanSendToChat(msg.ChatID) {
-		s.log.Info("Skip SendComment: cannot send to discussion chat (after delay)",
+		s.log.Info("Skip SendComment: cannot send to chat (after delay)",
 			"chat_id", msg.ChatID,
 			"msg_thread_id", msg.MessageThreadId,
 		)
