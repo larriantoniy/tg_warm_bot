@@ -28,12 +28,6 @@ type TelegramClient struct {
 	linkedChats map[int64]int64
 	joinedChats map[int64]struct{}
 	blockedTill map[int64]time.Time
-	threadMap   map[threadKey]int64
-}
-
-type threadKey struct {
-	DiscussionChatID int64
-	ThreadID         int64
 }
 type ClientMode int
 
@@ -122,7 +116,6 @@ func NewClientFromJSON(
 			linkedChats: make(map[int64]int64),
 			joinedChats: make(map[int64]struct{}),
 			blockedTill: make(map[int64]time.Time),
-			threadMap: make(map[threadKey]int64),
 		}, nil
 	}
 
@@ -146,7 +139,6 @@ func NewClientFromJSON(
 		linkedChats: make(map[int64]int64),
 		joinedChats: make(map[int64]struct{}),
 		blockedTill: make(map[int64]time.Time),
-		threadMap: make(map[threadKey]int64),
 	}, nil
 }
 
@@ -464,6 +456,21 @@ func (t *TelegramClient) ensureJoinedChat(chatID int64) {
 	t.logger.Info("Joined linked discussion chat", "chat_id", chatID)
 }
 
+func (t *TelegramClient) resolveDiscussionThread(channelChatID int64, channelMsgID int64, fallbackDiscussionID int64) (int64, int64, bool) {
+	info, err := t.client.GetMessageThread(&client.GetMessageThreadRequest{
+		ChatId:    channelChatID,
+		MessageId: channelMsgID,
+	})
+	if err == nil && info != nil && info.ChatId != 0 && info.MessageThreadId != 0 {
+		return info.ChatId, info.MessageThreadId, true
+	}
+	if fallbackDiscussionID != 0 && channelMsgID != 0 {
+		// fallback: send to linked discussion using channel message id as thread id
+		return fallbackDiscussionID, channelMsgID, true
+	}
+	return 0, 0, false
+}
+
 func (t *TelegramClient) processUpdateNewMessage(out chan domain.Message, upd *client.UpdateNewMessage) (<-chan domain.Message, error) {
 	if upd.Message.IsOutgoing {
 		return out, nil
@@ -476,29 +483,33 @@ func (t *TelegramClient) processUpdateNewMessage(out chan domain.Message, upd *c
 	if !ok {
 		return out, nil
 	}
-	t.ensureJoinedChat(linkedChatID)
 
 	threadID := upd.Message.Id
 	if threadID == 0 {
 		return out, nil
 	}
-	return t.processChannelPostThread(out, upd.Message.ChatId, linkedChatID, threadID)
+	discussionChatID, discussionThreadID, ok := t.resolveDiscussionThread(upd.Message.ChatId, threadID, linkedChatID)
+	if !ok {
+		return out, nil
+	}
+	t.ensureJoinedChat(discussionChatID)
+	return t.processChannelPostThread(out, upd.Message.ChatId, discussionChatID, discussionThreadID, threadID)
 }
 
-func (t *TelegramClient) processChannelPostThread(out chan domain.Message, channelChatID int64, discussionChatID int64, threadID int64) (<-chan domain.Message, error) {
+func (t *TelegramClient) processChannelPostThread(out chan domain.Message, channelChatID int64, discussionChatID int64, discussionThreadID int64, channelMsgID int64) (<-chan domain.Message, error) {
 	if t.isChatBlocked(discussionChatID) {
 		t.logger.Info("Skip post thread: invite required for discussion chat", "chat_id", discussionChatID)
 		return out, nil
 	}
-
-	t.mu.Lock()
-	t.threadMap[threadKey{DiscussionChatID: discussionChatID, ThreadID: threadID}] = channelChatID
-	t.mu.Unlock()
+	if !t.CanSendToChat(discussionChatID) {
+		t.logger.Info("Skip post thread: cannot send to discussion chat", "chat_id", discussionChatID)
+		return out, nil
+	}
 
 	t.logger.Info("Processing channel post thread",
 		"channel_chat_id", channelChatID,
 		"discussion_chat_id", discussionChatID,
-		"thread_id", threadID,
+		"thread_id", discussionThreadID,
 	)
 
 	chatName, err := t.getChatTitle(channelChatID)
@@ -509,12 +520,12 @@ func (t *TelegramClient) processChannelPostThread(out chan domain.Message, chann
 
 	threadMsg, err := t.client.GetMessage(&client.GetMessageRequest{
 		ChatId:    channelChatID,
-		MessageId: threadID,
+		MessageId: channelMsgID,
 	})
 	if err != nil {
 		t.logger.Error("GetMessage for thread root failed",
 			"chat_id", channelChatID,
-			"thread_id", threadID,
+			"thread_id", channelMsgID,
 			"error", err,
 		)
 		return out, err
@@ -537,7 +548,7 @@ func (t *TelegramClient) processChannelPostThread(out chan domain.Message, chann
 		ChatID:          discussionChatID,
 		Text:            text,
 		ChatName:        chatName,
-		MessageThreadId: threadID,
+		MessageThreadId: discussionThreadID,
 	}
 	return out, nil
 }
@@ -598,19 +609,6 @@ func (t *TelegramClient) SendMessage(
 
 	if threadID != 0 {
 		req.MessageThreadId = threadID
-		t.mu.Lock()
-		extChatID, ok := t.threadMap[threadKey{DiscussionChatID: chatID, ThreadID: threadID}]
-		t.mu.Unlock()
-		if ok {
-			req.ReplyTo = &client.InputMessageReplyToExternalMessage{
-				ChatId:    extChatID,
-				MessageId: threadID,
-			}
-		} else {
-			req.ReplyTo = &client.InputMessageReplyToMessage{
-				MessageId: threadID,
-			}
-		}
 	}
 
 	sentMsg, err := t.client.SendMessage(req)
