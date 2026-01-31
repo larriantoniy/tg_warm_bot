@@ -150,7 +150,7 @@ func runAuthMode(logger *slog.Logger, cfg *config.AppConfig) error {
 		cfg.BaseDir,
 		cfg.Session,
 		logger,
-		tg.ClientModeRuntime,
+		tg.ClientModeAuth,
 	)
 	if err != nil {
 		return err
