@@ -22,6 +22,7 @@ type TelegramClient interface {
 	Close()
 	SendMessage(chatID int64,
 		threadID int64, // может быть 0
+		replyToMessageID int64, // может быть 0
 		text string) error
 	SimulateTyping(chatID, threadID int64, text string)
 	ImitateReading(ctx context.Context, chatID int64)

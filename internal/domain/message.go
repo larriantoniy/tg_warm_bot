@@ -9,4 +9,5 @@ type Message struct {
 	Text            string
 	PhotoFile       string
 	MessageThreadId int64
+	ReplyToMessageID int64
 }

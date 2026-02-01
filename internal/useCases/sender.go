@@ -130,6 +130,7 @@ func (s *Sender) SendComment(ctx context.Context, msg *domain.Message) error {
 	if err := s.tg.SendMessage(
 		msg.ChatID,
 		msg.MessageThreadId,
+		msg.ReplyToMessageID,
 		replyText,
 	); err != nil {
 		if errors.Is(err, tg.ErrRateLimited) {
@@ -206,7 +207,7 @@ func (s *Sender) sendOwnerNotify(msg *domain.Message, replyText string) error {
 	if chatLink != "" {
 		toOwner = fmt.Sprintf("%s\n\nСсылка: %s", toOwner, chatLink)
 	}
-	err := s.tg.SendMessage(s.ownerUserID, 0, toOwner)
+	err := s.tg.SendMessage(s.ownerUserID, 0, 0, toOwner)
 	if err != nil {
 		s.log.Warn("Send Owner Notify", "error", err)
 		return err
