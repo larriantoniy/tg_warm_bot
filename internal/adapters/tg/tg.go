@@ -25,7 +25,6 @@ type TelegramClient struct {
 	selfId int64
 
 	mu          sync.Mutex
-	linkedChats map[int64]int64
 	joinedChats map[int64]struct{}
 	blockedTill map[int64]time.Time
 }
@@ -113,7 +112,6 @@ func NewClientFromJSON(
 			client: tdCli,
 			logger: log,
 			selfId: 0, // узнаешь позже через GetMe, если нужно
-			linkedChats: make(map[int64]int64),
 			joinedChats: make(map[int64]struct{}),
 			blockedTill: make(map[int64]time.Time),
 		}, nil
@@ -136,7 +134,6 @@ func NewClientFromJSON(
 		client: tdCli,
 		logger: log,
 		selfId: me.Id,
-		linkedChats: make(map[int64]int64),
 		joinedChats: make(map[int64]struct{}),
 		blockedTill: make(map[int64]time.Time),
 	}, nil
@@ -383,42 +380,6 @@ func (t *TelegramClient) getChatTitle(chatID int64) (string, error) {
 	return chat.Title, nil
 }
 
-func (t *TelegramClient) getLinkedChatID(chatID int64) (int64, bool) {
-	t.mu.Lock()
-	if linked, ok := t.linkedChats[chatID]; ok {
-		t.mu.Unlock()
-		return linked, linked != 0
-	}
-	t.mu.Unlock()
-
-	chat, err := t.client.GetChat(&client.GetChatRequest{
-		ChatId: chatID,
-	})
-	if err != nil {
-		t.logger.Debug("GetChat failed for linked chat lookup", "chat_id", chatID, "error", err)
-		return 0, false
-	}
-
-	sg, ok := chat.Type.(*client.ChatTypeSupergroup)
-	if !ok {
-		return 0, false
-	}
-
-	info, err := t.client.GetSupergroupFullInfo(&client.GetSupergroupFullInfoRequest{
-		SupergroupId: sg.SupergroupId,
-	})
-	if err != nil {
-		t.logger.Debug("GetSupergroupFullInfo failed", "chat_id", chatID, "error", err)
-		return 0, false
-	}
-
-	t.mu.Lock()
-	t.linkedChats[chatID] = info.LinkedChatId
-	t.mu.Unlock()
-
-	return info.LinkedChatId, info.LinkedChatId != 0
-}
-
 func (t *TelegramClient) ensureJoinedChat(chatID int64) {
 	if chatID == 0 {
 		return
@@ -456,17 +417,13 @@ func (t *TelegramClient) ensureJoinedChat(chatID int64) {
 	t.logger.Info("Joined linked discussion chat", "chat_id", chatID)
 }
 
-func (t *TelegramClient) resolveDiscussionThread(channelChatID int64, channelMsgID int64, fallbackDiscussionID int64) (int64, int64, bool) {
+func (t *TelegramClient) resolveDiscussionThread(channelChatID int64, channelMsgID int64) (int64, int64, bool) {
 	info, err := t.client.GetMessageThread(&client.GetMessageThreadRequest{
 		ChatId:    channelChatID,
 		MessageId: channelMsgID,
 	})
 	if err == nil && info != nil && info.ChatId != 0 && info.MessageThreadId != 0 {
 		return info.ChatId, info.MessageThreadId, true
-	}
-	if fallbackDiscussionID != 0 && channelMsgID != 0 {
-		// fallback: send to linked discussion using channel message id as thread id
-		return fallbackDiscussionID, channelMsgID, true
 	}
 	return 0, 0, false
 }
@@ -479,21 +436,21 @@ func (t *TelegramClient) processUpdateNewMessage(out chan domain.Message, upd *c
 		return out, nil
 	}
 
-	linkedChatID, ok := t.getLinkedChatID(upd.Message.ChatId)
-	if !ok {
+	channelMsgID := upd.Message.Id
+	if channelMsgID == 0 {
 		return out, nil
 	}
 
-	threadID := upd.Message.Id
-	if threadID == 0 {
-		return out, nil
-	}
-	discussionChatID, discussionThreadID, ok := t.resolveDiscussionThread(upd.Message.ChatId, threadID, linkedChatID)
+	threadID := upd.Message.MessageThreadId
+	discussionChatID, discussionThreadID, ok := t.resolveDiscussionThread(upd.Message.ChatId, channelMsgID)
 	if !ok {
 		return out, nil
 	}
+	if threadID == 0 {
+		threadID = discussionThreadID
+	}
 	t.ensureJoinedChat(discussionChatID)
-	return t.processChannelPostThread(out, upd.Message.ChatId, discussionChatID, discussionThreadID, threadID)
+	return t.processChannelPostThread(out, upd.Message.ChatId, discussionChatID, threadID, channelMsgID)
 }
 
 func (t *TelegramClient) processChannelPostThread(out chan domain.Message, channelChatID int64, discussionChatID int64, discussionThreadID int64, channelMsgID int64) (<-chan domain.Message, error) {
