@@ -441,16 +441,12 @@ func (t *TelegramClient) processUpdateNewMessage(out chan domain.Message, upd *c
 		return out, nil
 	}
 
-	threadID := upd.Message.MessageThreadId
 	discussionChatID, discussionThreadID, ok := t.resolveDiscussionThread(upd.Message.ChatId, channelMsgID)
 	if !ok {
 		return out, nil
 	}
-	if threadID == 0 {
-		threadID = discussionThreadID
-	}
 	t.ensureJoinedChat(discussionChatID)
-	return t.processChannelPostThread(out, upd.Message.ChatId, discussionChatID, threadID, channelMsgID)
+	return t.processChannelPostThread(out, upd.Message.ChatId, discussionChatID, discussionThreadID, channelMsgID)
 }
 
 func (t *TelegramClient) processChannelPostThread(out chan domain.Message, channelChatID int64, discussionChatID int64, discussionThreadID int64, channelMsgID int64) (<-chan domain.Message, error) {
