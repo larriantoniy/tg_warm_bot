@@ -459,8 +459,19 @@ func (t *TelegramClient) processUpdateNewMessage(out chan domain.Message, upd *c
 
 	discussionChatID, discussionThreadID, replyToID, ok := t.resolveDiscussionThread(upd.Message.ChatId, channelMsgID)
 	if !ok {
+		t.logger.Info("Resolve thread failed",
+			"channel_chat_id", upd.Message.ChatId,
+			"channel_msg_id", channelMsgID,
+		)
 		return out, nil
 	}
+	t.logger.Info("Resolved discussion thread",
+		"channel_chat_id", upd.Message.ChatId,
+		"channel_msg_id", channelMsgID,
+		"discussion_chat_id", discussionChatID,
+		"discussion_thread_id", discussionThreadID,
+		"reply_to_message_id", replyToID,
+	)
 	t.ensureJoinedChat(discussionChatID)
 	return t.processChannelPostThread(out, upd.Message.ChatId, discussionChatID, discussionThreadID, replyToID, channelMsgID)
 }
