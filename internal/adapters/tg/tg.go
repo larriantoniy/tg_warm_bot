@@ -424,16 +424,16 @@ func (t *TelegramClient) resolveDiscussionThread(channelChatID int64, channelMsg
 	})
 	if err == nil && info != nil && info.ChatId != 0 && info.MessageThreadId != 0 {
 		replyToID := int64(0)
-		// Fetch thread history; messages are returned in reverse chronological order.
-		// The last message in the list is the oldest one — the forwarded channel post.
+		// Fetch only the root message of the thread.
+		// Using FromMessageId = MessageThreadId ensures we get the forwarded channel post.
 		hist, hErr := t.client.GetMessageThreadHistory(&client.GetMessageThreadHistoryRequest{
 			ChatId:        info.ChatId,
 			MessageId:     info.MessageThreadId,
-			FromMessageId: 0,
-			Limit:         50,
+			FromMessageId: info.MessageThreadId,
+			Limit:         1,
 		})
-		if hErr == nil && hist != nil && len(hist.Messages) > 0 {
-			replyToID = hist.Messages[len(hist.Messages)-1].Id
+		if hErr == nil && hist != nil && len(hist.Messages) > 0 && hist.Messages[0] != nil {
+			replyToID = hist.Messages[0].Id
 		}
 		if replyToID == 0 {
 			// Fallback to thread root id if history isn't available.
@@ -596,6 +596,11 @@ func (t *TelegramClient) SendMessage(
 		// Reply to the forwarded channel post in the discussion thread.
 		req.ReplyTo = &client.InputMessageReplyToMessage{MessageId: replyToMessageID}
 	}
+	t.logger.Info("SendMessage request",
+		"chat_id", chatID,
+		"thread_id", threadID,
+		"reply_to_message_id", replyToMessageID,
+	)
 
 	sentMsg, err := t.client.SendMessage(req)
 	if err != nil {
